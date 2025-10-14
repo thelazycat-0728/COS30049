@@ -33,6 +33,7 @@ plantsObservationRouter.post(
 plantsObservationRouter.put(
   '/:id',
   requireAdmin,
+  upload.single('image'),
   ObservationController.update
 );
 

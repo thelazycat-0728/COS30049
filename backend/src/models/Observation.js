@@ -1,4 +1,4 @@
-const pool = require('../config/database');
+const pool = require("../config/database");
 
 class Observation {
   /**
@@ -14,7 +14,7 @@ class Observation {
       observationDate,
       confidenceScore,
       status,
-      verifiedBy = null
+      verifiedBy = null,
     } = data;
 
     const query = `
@@ -32,7 +32,7 @@ class Observation {
       observationDate,
       confidenceScore,
       status,
-      verifiedBy
+      verifiedBy,
     ]);
 
     return result.insertId;
@@ -66,58 +66,44 @@ class Observation {
     const {
       page = 1,
       limit = 10,
-      species,
-      conservationStatus,
-      verified,
-      flagged,
+      plantId,
+      status,
       userId,
       startDate,
-      endDate
+      endDate,
     } = filters;
 
     const offset = (page - 1) * limit;
 
     let query = `
       SELECT 
-        o.id,
+        o.observation_id,
         o.user_id,
         o.image_url,
-        o.species,
-        o.confidence,
-        o.gps_lat,
-        o.gps_lng,
-        o.conservation_status,
-        o.verified,
-        o.flagged,
+        o.plant_id,
+        o.confidence_score,
+        o.latitude,
+        o.longitude,
+        o.status,
         o.observation_date,
         o.created_at,
         u.username
-      FROM observations o
-      LEFT JOIN Users u ON o.user_id = u.id
+      FROM PlantObservations o
+      LEFT JOIN Users u ON o.user_id = u.user_id
       WHERE 1=1
     `;
 
     const params = [];
 
     // Apply filters
-    if (species) {
-      query += ` AND o.species LIKE ?`;
-      params.push(`%${species}%`);
+    if (plantId) {
+      query += ` AND o.plant_id = ?`;
+      params.push(plantId);
     }
 
-    if (conservationStatus) {
-      query += ` AND o.conservation_status = ?`;
-      params.push(conservationStatus);
-    }
-
-    if (verified !== undefined) {
-      query += ` AND o.verified = ?`;
-      params.push(verified ? 1 : 0);
-    }
-
-    if (flagged !== undefined) {
-      query += ` AND o.flagged = ?`;
-      params.push(flagged ? 1 : 0);
+    if (status) {
+      query += ` AND o.status = ?`;
+      params.push(status);
     }
 
     if (userId) {
@@ -146,34 +132,34 @@ class Observation {
    * Count total observations (for pagination)
    */
   static async countAll(filters = {}) {
-    const { species, conservationStatus, verified, flagged, userId } = filters;
+    const { plantId, status, userId, startDate, endDate } = filters;
 
-    let query = `SELECT COUNT(*) as total FROM observations WHERE 1=1`;
+    let query = `SELECT COUNT(*) as total FROM PlantObservations o WHERE 1=1`;
     const params = [];
 
-    if (species) {
-      query += ` AND species LIKE ?`;
-      params.push(`%${species}%`);
+    if (plantId) {
+      query += ` AND o.plant_id = ?`;
+      params.push(plantId);
     }
 
-    if (conservationStatus) {
-      query += ` AND conservation_status = ?`;
-      params.push(conservationStatus);
-    }
-
-    if (verified !== undefined) {
-      query += ` AND verified = ?`;
-      params.push(verified ? 1 : 0);
-    }
-
-    if (flagged !== undefined) {
-      query += ` AND flagged = ?`;
-      params.push(flagged ? 1 : 0);
+    if (status) {
+      query += ` AND o.status = ?`;
+      params.push(status);
     }
 
     if (userId) {
-      query += ` AND user_id = ?`;
+      query += ` AND o.user_id = ?`;
       params.push(userId);
+    }
+
+    if (startDate) {
+      query += ` AND o.observation_date >= ?`;
+      params.push(startDate);
+    }
+
+    if (endDate) {
+      query += ` AND o.observation_date <= ?`;
+      params.push(endDate);
     }
 
     const [rows] = await pool.query(query, params);
@@ -188,48 +174,35 @@ class Observation {
     const params = [];
 
     // Build dynamic update query
-    if (data.species !== undefined) {
-      updates.push('species = ?');
-      params.push(data.species);
+    if (data.plantId !== undefined) {
+      updates.push("plant_id = ?");
+      params.push(plantId);
     }
 
-    if (data.confidence !== undefined) {
-      updates.push('confidence = ?');
-      params.push(data.confidence);
+    if (data.confidenceScore !== undefined) {
+      updates.push("confidence_score = ?");
+      params.push(data.confidenceScore);
     }
 
-    if (data.conservationStatus !== undefined) {
-      updates.push('conservation_status = ?');
-      params.push(data.conservationStatus);
+  
+    if (data.status !== undefined) {
+      updates.push("status = ?");
+      params.push(data.status);
     }
 
-    if (data.verified !== undefined) {
-      updates.push('verified = ?');
-      params.push(data.verified ? 1 : 0);
-    }
-
-    if (data.verifiedBy !== undefined) {
-      updates.push('verified_by = ?');
-      params.push(data.verifiedBy);
-    }
-
-    if (data.verified === true) {
-      updates.push('verified_at = NOW()');
-    }
-
-    if (data.notes !== undefined) {
-      updates.push('notes = ?');
-      params.push(data.notes);
+    if (data.imageUrl !== undefined) {
+      updates.push("image_url = ?");
+      params.push(data.imageUrl);
     }
 
     if (updates.length === 0) {
       return false;
     }
 
-    updates.push('updated_at = NOW()');
+    updates.push("updated_at = NOW()");
     params.push(id);
 
-    const query = `UPDATE observations SET ${updates.join(', ')} WHERE id = ?`;
+    const query = `UPDATE PlantObservations SET ${updates.join(", ")} WHERE id = ?`;
     const [result] = await pool.query(query, params);
 
     return result.affectedRows > 0;
@@ -239,7 +212,7 @@ class Observation {
    * Delete observation
    */
   static async delete(id) {
-    const query = 'DELETE FROM observations WHERE id = ?';
+    const query = "DELETE FROM observations WHERE id = ?";
     const [result] = await pool.query(query, [id]);
     return result.affectedRows > 0;
   }
@@ -266,7 +239,7 @@ class Observation {
       await pool.query(flagQuery, [id, userId, reason]);
     } catch (error) {
       // Table might not exist yet, that's okay
-      console.log('Flag record not created (table may not exist)');
+      console.log("Flag record not created (table may not exist)");
     }
 
     return true;

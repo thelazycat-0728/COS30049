@@ -126,7 +126,19 @@ CREATE TABLE mfa_codes (
   INDEX idx_code (code),
   INDEX idx_expires (expires_at),
   FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
-) 
+)
+
+CREATE TABLE token_blacklist (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  token VARCHAR(500) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_token (token),
+  INDEX idx_expires (expires_at)
+);
+
+-- Clean up expired tokens periodically
+DELETE FROM token_blacklist WHERE expires_at < NOW();
 
 -- Create indexes for better performance
 CREATE INDEX idx_sensor_readings_sensor_id ON SensorReadings(sensor_id);

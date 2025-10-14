@@ -4,6 +4,7 @@ const RefreshToken = require("../models/RefreshToken");
 const MFACode = require("../models/mfaCode");
 const emailService = require("../services/emailService");
 require("dotenv").config();
+const TokenBlacklist = require("../models/TokenBlacklist");
 
 class AuthController {
   static generateTempToken(user) {
@@ -399,6 +400,10 @@ class AuthController {
       if (refreshToken) {
         await RefreshToken.revoke(refreshToken);
       }
+      
+      const token = req.token;
+
+      await TokenBlacklist.add(token, new Date(Date.now() + 15 * 60 * 1000)); // Blacklist for 15 mins
 
       // Clear cookies
       res.clearCookie("accessToken");
@@ -423,6 +428,10 @@ class AuthController {
   static async logoutAll(req, res) {
     try {
       await RefreshToken.revokeAllForUser(req.user.id);
+
+      const token = req.token;
+
+      await TokenBlacklist.add(token, new Date(Date.now() + 15 * 60 * 1000)); // Blacklist for 15 mins
 
       res.clearCookie("accessToken");
       res.clearCookie("refreshToken");

@@ -1,7 +1,8 @@
-const jwt = require('jsonwebtoken');
-const config = require('../config/config');
-const User = require('../models/User');
-require('dotenv').config();
+const jwt = require("jsonwebtoken");
+const config = require("../config/config");
+const User = require("../models/User");
+require("dotenv").config();
+const TokenBlacklist = require("../models/TokenBlacklist");
 
 /**
  * Basic authentication middleware
@@ -12,18 +13,25 @@ const requireAuth = async (req, res, next) => {
     // 1. Extract token from multiple possible sources
     let token = null;
 
-
     // Check Authorization header (Bearer token)
     const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
     }
 
     // No token found
     if (!token) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Authentication required. No token provided.' 
+        error: "Authentication required. No token provided.",
+      });
+    }
+
+    const isBlacklisted = await TokenBlacklist.isBlacklisted(token);
+    if (isBlacklisted) {
+      return res.status(401).json({
+        success: false,
+        error: "Token has been revoked. Please login again.",
       });
     }
 
@@ -32,38 +40,28 @@ const requireAuth = async (req, res, next) => {
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);
     } catch (error) {
-      if (error.name === 'TokenExpiredError') {
-        return res.status(401).json({ 
+      if (error.name === "TokenExpiredError") {
+        return res.status(401).json({
           success: false,
-          error: 'Token has expired. Please login again.' 
+          error: "Token has expired. Please login again.",
         });
       }
-      if (error.name === 'JsonWebTokenError') {
-        return res.status(401).json({ 
+      if (error.name === "JsonWebTokenError") {
+        return res.status(401).json({
           success: false,
-          error: 'Invalid token.' 
+          error: "Invalid token.",
         });
       }
       throw error; // Other errors
     }
 
-    // 3. Optional: Check if token is blacklisted (for logout functionality)
-    // const TokenBlacklist = require('../models/TokenBlacklist');
-    // const isBlacklisted = await TokenBlacklist.isBlacklisted(token);
-    // if (isBlacklisted) {
-    //   return res.status(401).json({ 
-    //     success: false,
-    //     error: 'Token has been revoked.' 
-    //   });
-    // }
-
     // 4. Optional: Verify user still exists and is active
- 
+
     const user = await User.findById(decoded.id);
     if (!user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'User no longer exists.' 
+        error: "User no longer exists.",
       });
     }
 
@@ -72,18 +70,17 @@ const requireAuth = async (req, res, next) => {
       id: decoded.id || user.user_id,
       email: decoded.email || user.email,
       role: decoded.role || user.role,
-      username: user.username
+      username: user.username,
     };
     req.token = token;
 
     // 6. Continue to next middleware/controller
     next();
-
   } catch (error) {
-    console.error('Auth middleware error:', error);
-    res.status(500).json({ 
+    console.error("Auth middleware error:", error);
+    res.status(500).json({
       success: false,
-      error: 'Authentication failed. Please try again.' 
+      error: "Authentication failed. Please try again.",
     });
   }
 };
@@ -96,17 +93,17 @@ const requireRole = (...allowedRoles) => {
   return (req, res, next) => {
     // Must use requireAuth first
     if (!req.user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Authentication required.' 
+        error: "Authentication required.",
       });
     }
 
     // Check if user's role is in allowed roles
     if (!allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        error: `Access denied. Required role: ${allowedRoles.join(' or ')}` 
+        error: `Access denied. Required role: ${allowedRoles.join(" or ")}`,
       });
     }
 
@@ -117,12 +114,12 @@ const requireRole = (...allowedRoles) => {
 /**
  * Shorthand middleware for expert or admin access
  */
-const requireExpert = [requireAuth, requireRole('expert', 'admin')];
+const requireExpert = [requireAuth, requireRole("expert", "admin")];
 
 /**
  * Shorthand middleware for admin-only access
  */
-const requireAdmin = [requireAuth, requireRole('admin')];
+const requireAdmin = [requireAuth, requireRole("admin")];
 
 /**
  * Optional authentication
@@ -133,8 +130,8 @@ const optionalAuth = async (req, res, next) => {
     let token = null;
 
     const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
     }
 
     if (!token && req.cookies?.token) {
@@ -153,7 +150,7 @@ const optionalAuth = async (req, res, next) => {
       req.user = {
         id: decoded.id,
         email: decoded.email,
-        role: decoded.role
+        role: decoded.role,
       };
     } catch (error) {
       // Token invalid/expired = continue without user
@@ -161,9 +158,8 @@ const optionalAuth = async (req, res, next) => {
     }
 
     next();
-
   } catch (error) {
-    console.error('Optional auth error:', error);
+    console.error("Optional auth error:", error);
     req.user = null;
     next();
   }
@@ -173,12 +169,12 @@ const optionalAuth = async (req, res, next) => {
  * Check if user owns the resource
  * Use after requireAuth
  */
-const requireOwnership = (userIdParam = 'id') => {
+const requireOwnership = (userIdParam = "id") => {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Authentication required.' 
+        error: "Authentication required.",
       });
     }
 
@@ -186,15 +182,15 @@ const requireOwnership = (userIdParam = 'id') => {
     const currentUserId = req.user.id;
 
     // Admin can access everything
-    if (req.user.role === 'admin') {
+    if (req.user.role === "admin") {
       return next();
     }
 
     // Check ownership
     if (resourceUserId !== currentUserId) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        error: 'You can only access your own resources.' 
+        error: "You can only access your own resources.",
       });
     }
 
@@ -226,14 +222,14 @@ const rateLimit = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
     const userRequests = requests.get(userId);
 
     // Remove old requests outside the window
-    const recentRequests = userRequests.filter(time => time > windowStart);
+    const recentRequests = userRequests.filter((time) => time > windowStart);
     requests.set(userId, recentRequests);
 
     // Check if limit exceeded
     if (recentRequests.length >= maxRequests) {
-      return res.status(429).json({ 
+      return res.status(429).json({
         success: false,
-        error: 'Too many requests. Please try again later.' 
+        error: "Too many requests. Please try again later.",
       });
     }
 
@@ -251,5 +247,5 @@ module.exports = {
   requireAdmin,
   optionalAuth,
   requireOwnership,
-  rateLimit
+  rateLimit,
 };

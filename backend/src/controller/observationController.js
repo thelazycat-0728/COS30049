@@ -1,6 +1,6 @@
-const Observation = require('../models/Observation');
+const Observation = require("../models/Observation");
 // const AIService = require('../services/aiService');
-const StorageService = require('../services/storageService');
+const StorageService = require("../services/storageService");
 // const GeoUtils = require('../utils/geoUtils');
 
 class ObservationController {
@@ -13,25 +13,21 @@ class ObservationController {
       const {
         page = 1,
         limit = 10,
-        species,
-        conservation_status,
-        verified,
-        flagged,
-        user_id,
+        plantId,
+        status,
+        userId,
         start_date,
-        end_date
+        end_date,
       } = req.query;
 
       const filters = {
         page: parseInt(page),
         limit: parseInt(limit),
-        species,
-        conservationStatus: conservation_status,
-        verified: verified === 'true' ? true : verified === 'false' ? false : undefined,
-        flagged: flagged === 'true' ? true : flagged === 'false' ? false : undefined,
-        userId: user_id,
+        status: status,
+        plantId: plantId,
+        userId: userId,
         startDate: start_date,
-        endDate: end_date
+        endDate: end_date,
       };
 
       // Get observations
@@ -41,25 +37,25 @@ class ObservationController {
       const total = await Observation.countAll(filters);
 
       // Apply GPS masking based on user role
-      const userRole = req.user?.role || 'public';
-      observations = observations.map(obs => {
-        const canSeeExact = GeoUtils.canSeeExactLocation(userRole, obs.conservation_status);
-        
-        if (!canSeeExact) {
-          const masked = GeoUtils.maskCoordinates(obs.gps_lat, obs.gps_lng);
-          return {
-            ...obs,
-            gps_lat: masked.lat,
-            gps_lng: masked.lng,
-            location_masked: true
-          };
-        }
+      // const userRole = req.user?.role || 'public';
+      // observations = observations.map(obs => {
+      //   const canSeeExact = GeoUtils.canSeeExactLocation(userRole, obs.conservation_status);
 
-        return {
-          ...obs,
-          location_masked: false
-        };
-      });
+      //   if (!canSeeExact) {
+      //     const masked = GeoUtils.maskCoordinates(obs.gps_lat, obs.gps_lng);
+      //     return {
+      //       ...obs,
+      //       gps_lat: masked.lat,
+      //       gps_lng: masked.lng,
+      //       location_masked: true
+      //     };
+      //   }
+
+      //   return {
+      //     ...obs,
+      //     location_masked: false
+      //   };
+      // });
 
       res.json({
         success: true,
@@ -68,15 +64,14 @@ class ObservationController {
           page: filters.page,
           limit: filters.limit,
           total,
-          totalPages: Math.ceil(total / filters.limit)
-        }
+          totalPages: Math.ceil(total / filters.limit),
+        },
       });
-
     } catch (error) {
-      console.error('Get observations error:', error);
+      console.error("Get observations error:", error);
       res.status(500).json({
         success: false,
-        error: 'Failed to fetch observations'
+        error: "Failed to fetch observations",
       });
     }
   }
@@ -94,33 +89,32 @@ class ObservationController {
       if (!observation) {
         return res.status(404).json({
           success: false,
-          error: 'Observation not found'
+          error: "Observation not found",
         });
       }
 
       // Apply GPS masking
-      const userRole = req.user?.role || 'public';
-      const canSeeExact = GeoUtils.canSeeExactLocation(userRole, observation.conservation_status);
-      
-      if (!canSeeExact) {
-        const masked = GeoUtils.maskCoordinates(observation.gps_lat, observation.gps_lng);
-        observation.gps_lat = masked.lat;
-        observation.gps_lng = masked.lng;
-        observation.location_masked = true;
-      } else {
-        observation.location_masked = false;
-      }
+      // const userRole = req.user?.role || 'public';
+      // const canSeeExact = GeoUtils.canSeeExactLocation(userRole, observation.conservation_status);
+
+      // if (!canSeeExact) {
+      //   const masked = GeoUtils.maskCoordinates(observation.gps_lat, observation.gps_lng);
+      //   observation.gps_lat = masked.lat;
+      //   observation.gps_lng = masked.lng;
+      //   observation.location_masked = true;
+      // } else {
+      //   observation.location_masked = false;
+      // }
 
       res.json({
         success: true,
-        observation
+        observation,
       });
-
     } catch (error) {
-      console.error('Get observation error:', error);
+      console.error("Get observation error:", error);
       res.status(500).json({
         success: false,
-        error: 'Failed to fetch observation'
+        error: "Failed to fetch observation",
       });
     }
   }
@@ -131,7 +125,8 @@ class ObservationController {
    */
   static async create(req, res) {
     try {
-      const { latitude, longitude, plantId, observationDate, status } = req.body;
+      const { latitude, longitude, plantId, observationDate, status } =
+        req.body;
       const userId = req.user.id;
 
       // Upload image
@@ -141,7 +136,7 @@ class ObservationController {
       } catch (error) {
         return res.status(500).json({
           success: false,
-          error: 'Failed to upload image'
+          error: "Failed to upload image",
         });
       }
 
@@ -149,15 +144,15 @@ class ObservationController {
       let aiResult;
       try {
         // aiResult = await AIService.identifyPlant(req.file);
-        console.log('AI identification skipped in this demo.');
-        aiResult = {species: 'Hibiscus', confidence: 0.12, alternatives: []};
+        console.log("AI identification skipped in this demo.");
+        aiResult = { species: "Hibiscus", confidence: 0.12, alternatives: [] };
       } catch (error) {
-        console.error('AI identification error:', error);
+        console.error("AI identification error:", error);
         // Continue even if AI fails
         aiResult = {
-          species: 'Unknown',
+          species: "Unknown",
           confidence: 0,
-          alternatives: []
+          alternatives: [],
         };
       }
 
@@ -170,7 +165,7 @@ class ObservationController {
         longtitude: longitude,
         observationDate: observationDate || new Date(),
         confidenceScore: aiResult.confidence,
-        status: status || 'pending'
+        status: status || "pending",
       });
 
       // Get created observation
@@ -178,20 +173,19 @@ class ObservationController {
 
       res.status(201).json({
         success: true,
-        message: 'Observation created successfully',
+        message: "Observation created successfully",
         observation,
         ai_prediction: {
           species: aiResult.species,
           confidence: aiResult.confidence,
-          alternatives: aiResult.alternatives
-        }
+          alternatives: aiResult.alternatives,
+        },
       });
-
     } catch (error) {
-      console.error('Create observation error:', error);
+      console.error("Create observation error:", error);
       res.status(500).json({
         success: false,
-        error: 'Failed to create observation'
+        error: "Failed to create observation",
       });
     }
   }
@@ -203,25 +197,42 @@ class ObservationController {
   static async update(req, res) {
     try {
       const { id } = req.params;
-      const { species, confidence, conservation_status, verified, notes } = req.body;
+
+      let imageUrl;
+
+      if (req.file) {
+        // Upload new image
+
+        try {
+          imageUrl = await StorageService.uploadImage(req.file);
+          req.body.imageUrl = imageUrl;
+        } catch (error) {
+          return res.status(500).json({
+            success: false,
+            error: "Failed to upload new image",
+          });
+        }
+      }
+
+      const { plantId, confidenceScore, status } = req.body;
 
       // Check if observation exists
       const observation = await Observation.findById(id);
       if (!observation) {
         return res.status(404).json({
           success: false,
-          error: 'Observation not found'
+          error: "Observation not found",
         });
       }
 
       // Update observation
       const updateData = {
-        species,
-        confidence: confidence ? parseFloat(confidence) : undefined,
-        conservationStatus: conservation_status,
-        verified: verified === 'true' || verified === true,
-        verifiedBy: req.user.id,
-        notes
+        confidenceScore: confidenceScore
+          ? parseFloat(confidenceScore)
+          : undefined,
+        plantId: plantId ? parseInt(plantId) : undefined,
+        status,
+        imageUrl: imageUrl || undefined,
       };
 
       const success = await Observation.update(id, updateData);
@@ -229,7 +240,7 @@ class ObservationController {
       if (!success) {
         return res.status(400).json({
           success: false,
-          error: 'No fields to update'
+          error: "No fields to update",
         });
       }
 
@@ -238,15 +249,14 @@ class ObservationController {
 
       res.json({
         success: true,
-        message: 'Observation updated successfully',
-        observation: updatedObservation
+        message: "Observation updated successfully",
+        observation: updatedObservation,
       });
-
     } catch (error) {
-      console.error('Update observation error:', error);
+      console.error("Update observation error:", error);
       res.status(500).json({
         success: false,
-        error: 'Failed to update observation'
+        error: "Failed to update observation",
       });
     }
   }
@@ -264,15 +274,15 @@ class ObservationController {
       if (!observation) {
         return res.status(404).json({
           success: false,
-          error: 'Observation not found'
+          error: "Observation not found",
         });
       }
 
       // Check ownership or admin
-      if (observation.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (observation.user_id !== req.user.id && req.user.role !== "admin") {
         return res.status(403).json({
           success: false,
-          error: 'You can only delete your own observations'
+          error: "You can only delete your own observations",
         });
       }
 
@@ -286,14 +296,13 @@ class ObservationController {
 
       res.json({
         success: true,
-        message: 'Observation deleted successfully'
+        message: "Observation deleted successfully",
       });
-
     } catch (error) {
-      console.error('Delete observation error:', error);
+      console.error("Delete observation error:", error);
       res.status(500).json({
         success: false,
-        error: 'Failed to delete observation'
+        error: "Failed to delete observation",
       });
     }
   }
@@ -312,23 +321,22 @@ class ObservationController {
       if (!observation) {
         return res.status(404).json({
           success: false,
-          error: 'Observation not found'
+          error: "Observation not found",
         });
       }
 
       // Flag observation
-      await Observation.flag(id, req.user.id, reason || 'No reason provided');
+      await Observation.flag(id, req.user.id, reason || "No reason provided");
 
       res.json({
         success: true,
-        message: 'Observation flagged for review'
+        message: "Observation flagged for review",
       });
-
     } catch (error) {
-      console.error('Flag observation error:', error);
+      console.error("Flag observation error:", error);
       res.status(500).json({
         success: false,
-        error: 'Failed to flag observation'
+        error: "Failed to flag observation",
       });
     }
   }
