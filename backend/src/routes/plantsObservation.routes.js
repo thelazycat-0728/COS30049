@@ -1,30 +1,53 @@
 const express = require('express');
+const ObservationController = require('../controller/observationController');
+const { requireAuth, requireAdmin, optionalAuth } = require('../middleware/auth');
+const { validateObservation } = require('../middleware/validation');
+const upload = require('../middleware/upload');
 
 const plantsObservationRouter = express.Router();
 
+// GET all observations (public with optional auth for better data)
+plantsObservationRouter.get(
+  '/',
+  optionalAuth,
+  ObservationController.getAll
+);
 
-plantsObservationRouter.get('/', (req, res) => {
-  res.send('Plants Observation route');
-})
+// GET single observation
+plantsObservationRouter.get(
+  '/:id',
+  optionalAuth,
+  ObservationController.getById
+);
 
-plantsObservationRouter.post('/', (req, res) => {
-  res.send('Create a new plant observation');
-});
+// POST create new observation (authenticated users only)
+plantsObservationRouter.post(
+  '/',
+  requireAuth,
+  upload.single('image'),
+  validateObservation,
+  ObservationController.create
+);
 
-plantsObservationRouter.get('/:id', (req, res) => {
-  res.send(`Get plant observation with ID: ${req.params.id}`);
-});
+// PUT update observation (admin only)
+plantsObservationRouter.put(
+  '/:id',
+  requireAdmin,
+  ObservationController.update
+);
 
-plantsObservationRouter.put('/:id', (req, res) => {
-  res.send(`Update plant observation with ID: ${req.params.id}`);
-});
+// DELETE observation (admin or owner)
+plantsObservationRouter.delete(
+  '/:id',
+  requireAuth,
+  ObservationController.delete
+);
 
-plantsObservationRouter.delete('/:id', (req, res) => {
-  res.send(`Delete plant observation with ID: ${req.params.id}`);
-});
-
-plantsObservationRouter.post('/:id/flag', (req, res) => {
-  res.send(`Flag plant observation with ID: ${req.params.id}`);
-});
+// POST flag observation (authenticated users)
+plantsObservationRouter.post(
+  '/:id/flag',
+  requireAuth,
+  ObservationController.flag
+);
 
 module.exports = plantsObservationRouter;

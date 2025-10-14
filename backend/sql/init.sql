@@ -42,6 +42,7 @@ CREATE TABLE PlantObservations (
     observation_date DATETIME NOT NULL,
     confidence_score DECIMAL(3,2) CHECK (confidence_score >= 0 AND confidence_score <= 1),
     status ENUM('pending', 'verified', 'unsure', 'rejected') NOT NULL DEFAULT 'pending',
+    verified_by INT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
@@ -137,6 +138,7 @@ CREATE INDEX idx_alerts_sensor_id ON Alerts(sensor_id);
 CREATE INDEX idx_alerts_observation_id ON Alerts(observation_id);
 CREATE INDEX idx_audit_logs_user_id ON AuditLogs(user_id);
 CREATE INDEX idx_audit_logs_time ON AuditLogs(action_time);
+CREATE INDEX idx_plant_observations_verified_by ON PlantObservations(verified_by);
 
 -- Sample data
 -- Insert into Users
@@ -163,7 +165,8 @@ VALUES (
     110.3593000, -- example longitude
     '2025-10-03 10:00:00',
     0.95,
-    'verified'
+    'verified',
+    1
 );
 
 -- Insert into IoTSensors (linked to observation_id)

@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const path = require('path');
 const plantsObservationRouter = require('./routes/plantsObservation.routes');
 const identifyRouter = require('./routes/identify.routes');
 const iotRouter = require('./routes/iot.routes');
@@ -29,6 +30,7 @@ app.use('/auth', authRouter);
 app.use('/admin', adminRouter);
 app.use('/expert', expertRouter);
 app.use('/user', userRouter);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 
 // Health check
