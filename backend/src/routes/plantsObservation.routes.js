@@ -44,6 +44,7 @@ plantsObservationRouter.delete(
   ObservationController.delete
 );
 
+// todo: if confidence below certain threshold, ask user if needs to flag
 
 
 module.exports = plantsObservationRouter;
