@@ -1,6 +1,7 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const userController = require('../controller/userController');
+const authController = require('../controller/authController');
 
 const adminRouter = express.Router();
 
@@ -12,6 +13,8 @@ adminRouter.put('/users/:id/role', auth.requireAdmin, userController.updateUserR
 adminRouter.get('/statistics', (req, res) => {
   res.send('Admin route for statistics');
 });
+
+adminRouter.post('/cleanup-tokens', auth.requireAdmin, authController.cleanupExpiredTokens);
 
 
 module.exports = adminRouter;

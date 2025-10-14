@@ -51,7 +51,6 @@ class AuthController {
     }
   }
 
-  
   /**
    * Generate access token (short-lived)
    */
@@ -177,7 +176,6 @@ class AuthController {
       // Verify MFA code
 
       const isValid = await MFACode.verify(decoded.id, code);
-
 
       if (!isValid) {
         return res.status(401).json({
@@ -400,7 +398,7 @@ class AuthController {
       if (refreshToken) {
         await RefreshToken.revoke(refreshToken);
       }
-      
+
       const token = req.token;
 
       await TokenBlacklist.add(token, new Date(Date.now() + 15 * 60 * 1000)); // Blacklist for 15 mins
@@ -445,6 +443,21 @@ class AuthController {
       res.status(500).json({
         success: false,
         error: "Logout failed",
+      });
+    }
+  }
+
+  static async cleanupExpiredTokens(req, res) {
+    try {
+      const deletedCount = await CleanupService.runCleanup();
+      res.json({
+        success: true,
+        message: `Cleaned up ${deletedCount} expired tokens`,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: "Cleanup failed",
       });
     }
   }
