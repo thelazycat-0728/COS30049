@@ -1,8 +1,8 @@
-// screens/UploadScreen.js
-import React, { useState } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, TextInput, Image, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity, TextInput, Image, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
+import PlantClassifierService from '../services/PlantClassifierService';
 
 const UploadScreen = () => {
   const navigation = useNavigation();
@@ -11,12 +11,20 @@ const UploadScreen = () => {
   const [scientificName, setScientificName] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
+  const [isClassifying, setIsClassifying] = useState(false);
+  const [predictions, setPredictions] = useState([]);
+  const [confidenceScore, setConfidenceScore] = useState(0);
+
+  useEffect(() => {
+    // Pre-load the model when screen mounts
+    PlantClassifierService.loadModel();
+  }, []);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (status !== 'granted') {
-      alert('Photo library permission is required to upload images');
+      Alert.alert('Permission Required', 'Photo library permission is required to upload images');
       return;
     }
 
@@ -24,11 +32,13 @@ const UploadScreen = () => {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 1,
+      quality: 0.8,
     });
 
     if (!result.canceled) {
       setImage(result.assets[0].uri);
+      // Auto-classify when image is selected
+      classifyPlantImage(result.assets[0].uri);
     }
   };
 
@@ -36,24 +46,51 @@ const UploadScreen = () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     
     if (status !== 'granted') {
-      alert('Camera permission is required to take photos');
+      Alert.alert('Permission Required', 'Camera permission is required to take photos');
       return;
     }
 
     let result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 1,
+      quality: 0.8,
     });
 
     if (!result.canceled) {
       setImage(result.assets[0].uri);
+      // Auto-classify when photo is taken
+      classifyPlantImage(result.assets[0].uri);
+    }
+  };
+
+  const classifyPlantImage = async (imageUri) => {
+    setIsClassifying(true);
+    setPredictions([]);
+    
+    try {
+      const results = await PlantClassifierService.classifyImage(imageUri);
+      setPredictions(results);
+      
+      // Auto-fill form with top prediction
+      if (results.length > 0) {
+        const topPrediction = results[0];
+        setPlantName(topPrediction.species);
+        setConfidenceScore(topPrediction.confidence);
+        
+        // Optionally set scientific name if available
+        // setScientificName(topPrediction.scientificName);
+      }
+    } catch (error) {
+      Alert.alert('Classification Error', 'Failed to identify plant. Please try again.');
+      console.error('Classification error:', error);
+    } finally {
+      setIsClassifying(false);
     }
   };
 
   const handleSubmit = () => {
     if (!image || !plantName) {
-      alert('Please provide at least an image and plant name');
+      Alert.alert('Missing Information', 'Please provide at least an image and plant name');
       return;
     }
 
@@ -65,11 +102,14 @@ const UploadScreen = () => {
       description,
       location,
       image,
+      confidenceScore,
       discoveredBy: 'Current User',
-      discoveryDate: new Date().toISOString().split('T')[0]
+      discoveryDate: new Date().toISOString().split('T')[0],
+      predictions: predictions
     };
 
-    alert('Plant observation uploaded successfully!');
+    console.log('Uploading plant data:', plantData);
+    Alert.alert('Success', 'Plant observation uploaded successfully!');
     
     // Reset form
     setImage(null);
@@ -77,6 +117,8 @@ const UploadScreen = () => {
     setScientificName('');
     setDescription('');
     setLocation('');
+    setPredictions([]);
+    setConfidenceScore(0);
     
     // Navigate to map
     navigation.navigate('Map');
@@ -105,6 +147,52 @@ const UploadScreen = () => {
             <Text style={styles.buttonText}>Take Photo</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Classification Loading */}
+        {isClassifying && (
+          <View style={styles.classifyingContainer}>
+            <ActivityIndicator size="large" color="#4CAF50" />
+            <Text style={styles.classifyingText}>Identifying plant...</Text>
+          </View>
+        )}
+
+        {/* AI Predictions */}
+        {predictions.length > 0 && !isClassifying && (
+          <View style={styles.predictionsContainer}>
+            <Text style={styles.predictionsTitle}>🤖 AI Identification Results:</Text>
+            {predictions.slice(0, 3).map((prediction, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.predictionItem,
+                  index === 0 && styles.topPrediction
+                ]}
+                onPress={() => {
+                  setPlantName(prediction.species);
+                  setConfidenceScore(prediction.confidence);
+                }}
+              >
+                <View style={styles.predictionContent}>
+                  <Text style={styles.predictionRank}>#{index + 1}</Text>
+                  <View style={styles.predictionInfo}>
+                    <Text style={styles.predictionSpecies}>
+                      {prediction.species}
+                    </Text>
+                    <Text style={styles.predictionConfidence}>
+                      {prediction.confidence}% confidence
+                    </Text>
+                  </View>
+                </View>
+                {index === 0 && (
+                  <Text style={styles.autoFilledBadge}>Auto-filled</Text>
+                )}
+              </TouchableOpacity>
+            ))}
+            <Text style={styles.predictionNote}>
+              Tap a result to use it in the form
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Form */}
@@ -115,6 +203,12 @@ const UploadScreen = () => {
           value={plantName}
           onChangeText={setPlantName}
         />
+
+        {confidenceScore > 0 && (
+          <Text style={styles.confidenceLabel}>
+            AI Confidence: {confidenceScore}%
+          </Text>
+        )}
         
         <TextInput
           style={styles.input}
@@ -192,6 +286,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '100%',
+    marginBottom: 15,
   },
   button: {
     backgroundColor: '#4CAF50',
@@ -203,6 +298,78 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
   },
+  classifyingContainer: {
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  classifyingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  predictionsContainer: {
+    width: '100%',
+    backgroundColor: '#f9f9f9',
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 10,
+  },
+  predictionsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
+  predictionItem: {
+    backgroundColor: 'white',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  topPrediction: {
+    borderColor: '#4CAF50',
+    borderWidth: 2,
+    backgroundColor: '#f0f8f0',
+  },
+  predictionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  predictionRank: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    marginRight: 12,
+    width: 30,
+  },
+  predictionInfo: {
+    flex: 1,
+  },
+  predictionSpecies: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  predictionConfidence: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  autoFilledBadge: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: 'bold',
+    marginTop: 5,
+  },
+  predictionNote: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
+  },
   form: {
     padding: 20,
   },
@@ -213,6 +380,12 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 15,
     fontSize: 16,
+  },
+  confidenceLabel: {
+    fontSize: 14,
+    color: '#4CAF50',
+    marginBottom: 10,
+    fontWeight: '600',
   },
   textArea: {
     height: 80,
