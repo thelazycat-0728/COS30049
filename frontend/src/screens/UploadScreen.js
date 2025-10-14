@@ -1,30 +1,54 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, TextInput, Image, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import { useNavigation } from '@react-navigation/native';
-import PlantClassifierService from '../services/PlantClassifierService';
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TextInput,
+  Image,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { useNavigation } from "@react-navigation/native";
+import PlantClassifierService from "../services/PlantClassifierService";
+
+import NetInfo from "@react-native-community/netinfo";
 
 const UploadScreen = () => {
   const navigation = useNavigation();
   const [image, setImage] = useState(null);
-  const [plantName, setPlantName] = useState('');
-  const [scientificName, setScientificName] = useState('');
-  const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('');
+  const [plantName, setPlantName] = useState("");
+  const [scientificName, setScientificName] = useState("");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
   const [isClassifying, setIsClassifying] = useState(false);
   const [predictions, setPredictions] = useState([]);
   const [confidenceScore, setConfidenceScore] = useState(0);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     // Pre-load the model when screen mounts
     PlantClassifierService.loadModel();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      setIsOffline(!state.isConnected);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Photo library permission is required to upload images');
+
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission Required",
+        "Photo library permission is required to upload images"
+      );
       return;
     }
 
@@ -44,9 +68,12 @@ const UploadScreen = () => {
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Camera permission is required to take photos');
+
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission Required",
+        "Camera permission is required to take photos"
+      );
       return;
     }
 
@@ -66,23 +93,26 @@ const UploadScreen = () => {
   const classifyPlantImage = async (imageUri) => {
     setIsClassifying(true);
     setPredictions([]);
-    
+
     try {
       const results = await PlantClassifierService.classifyImage(imageUri);
       setPredictions(results);
-      
+
       // Auto-fill form with top prediction
       if (results.length > 0) {
         const topPrediction = results[0];
         setPlantName(topPrediction.species);
         setConfidenceScore(topPrediction.confidence);
-        
+
         // Optionally set scientific name if available
         // setScientificName(topPrediction.scientificName);
       }
     } catch (error) {
-      Alert.alert('Classification Error', 'Failed to identify plant. Please try again.');
-      console.error('Classification error:', error);
+      Alert.alert(
+        "Classification Error",
+        "Failed to identify plant. Please try again."
+      );
+      console.error("Classification error:", error);
     } finally {
       setIsClassifying(false);
     }
@@ -90,7 +120,10 @@ const UploadScreen = () => {
 
   const handleSubmit = () => {
     if (!image || !plantName) {
-      Alert.alert('Missing Information', 'Please provide at least an image and plant name');
+      Alert.alert(
+        "Missing Information",
+        "Please provide at least an image and plant name"
+      );
       return;
     }
 
@@ -103,31 +136,46 @@ const UploadScreen = () => {
       location,
       image,
       confidenceScore,
-      discoveredBy: 'Current User',
-      discoveryDate: new Date().toISOString().split('T')[0],
-      predictions: predictions
+      discoveredBy: "Current User",
+      discoveryDate: new Date().toISOString().split("T")[0],
+      predictions: predictions,
     };
 
-    console.log('Uploading plant data:', plantData);
-    Alert.alert('Success', 'Plant observation uploaded successfully!');
-    
+    console.log("Uploading plant data:", plantData);
+    Alert.alert("Success", "Plant observation uploaded successfully!");
+
     // Reset form
     setImage(null);
-    setPlantName('');
-    setScientificName('');
-    setDescription('');
-    setLocation('');
+    setPlantName("");
+    setScientificName("");
+    setDescription("");
+    setLocation("");
     setPredictions([]);
     setConfidenceScore(0);
-    
+
     // Navigate to map
-    navigation.navigate('Map');
+    navigation.navigate("Map");
   };
 
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Upload New Plant Discovery</Text>
-      
+
+      <View style={styles.statusBar}>
+        {isOffline && (
+          <View style={styles.offlineBanner}>
+            <Text style={styles.offlineText}>
+              📡 Offline Mode - Using on-device AI
+            </Text>
+          </View>
+        )}
+        {PlantClassifierService.isOfflineCapable() && (
+          <View style={styles.offlineCapableBanner}>
+            <Text style={styles.offlineCapableText}>✅ Offline AI Ready</Text>
+          </View>
+        )}
+      </View>
+
       {/* Image Upload Section */}
       <View style={styles.uploadSection}>
         {image ? (
@@ -137,12 +185,12 @@ const UploadScreen = () => {
             <Text style={styles.uploadText}>Select Plant Image</Text>
           </View>
         )}
-        
+
         <View style={styles.buttonRow}>
           <TouchableOpacity style={styles.button} onPress={pickImage}>
             <Text style={styles.buttonText}>Choose from Gallery</Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.button} onPress={takePhoto}>
             <Text style={styles.buttonText}>Take Photo</Text>
           </TouchableOpacity>
@@ -159,13 +207,15 @@ const UploadScreen = () => {
         {/* AI Predictions */}
         {predictions.length > 0 && !isClassifying && (
           <View style={styles.predictionsContainer}>
-            <Text style={styles.predictionsTitle}>🤖 AI Identification Results:</Text>
+            <Text style={styles.predictionsTitle}>
+              🤖 AI Identification Results:
+            </Text>
             {predictions.slice(0, 3).map((prediction, index) => (
               <TouchableOpacity
                 key={index}
                 style={[
                   styles.predictionItem,
-                  index === 0 && styles.topPrediction
+                  index === 0 && styles.topPrediction,
                 ]}
                 onPress={() => {
                   setPlantName(prediction.species);
@@ -209,14 +259,14 @@ const UploadScreen = () => {
             AI Confidence: {confidenceScore}%
           </Text>
         )}
-        
+
         <TextInput
           style={styles.input}
           placeholder="Scientific Name"
           value={scientificName}
           onChangeText={setScientificName}
         />
-        
+
         <TextInput
           style={[styles.input, styles.textArea]}
           placeholder="Description"
@@ -225,16 +275,19 @@ const UploadScreen = () => {
           multiline
           numberOfLines={3}
         />
-        
+
         <TextInput
           style={styles.input}
           placeholder="Discovery Location"
           value={location}
           onChangeText={setLocation}
         />
-        
-        <TouchableOpacity 
-          style={[styles.submitButton, (!image || !plantName) && styles.submitButtonDisabled]} 
+
+        <TouchableOpacity
+          style={[
+            styles.submitButton,
+            (!image || !plantName) && styles.submitButtonDisabled,
+          ]}
           onPress={handleSubmit}
           disabled={!image || !plantName}
         >
@@ -248,16 +301,42 @@ const UploadScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
+    backgroundColor: "white",
+  },
+  statusBar: {
+    width: "100%",
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  offlineBanner: {
+    backgroundColor: "#FF9800",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 5,
+  },
+  offlineText: {
+    color: "white",
+    textAlign: "center",
+    fontWeight: "bold",
+  },
+  offlineCapableBanner: {
+    backgroundColor: "#4CAF50",
+    padding: 8,
+    borderRadius: 8,
+  },
+  offlineCapableText: {
+    color: "white",
+    textAlign: "center",
+    fontSize: 12,
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
+    fontWeight: "bold",
+    textAlign: "center",
     marginVertical: 20,
   },
   uploadSection: {
-    alignItems: 'center',
+    alignItems: "center",
     padding: 20,
   },
   imagePreview: {
@@ -269,78 +348,78 @@ const styles = StyleSheet.create({
   uploadPlaceholder: {
     width: 200,
     height: 200,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: "#f0f0f0",
     borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 20,
     borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: '#ccc',
+    borderStyle: "dashed",
+    borderColor: "#ccc",
   },
   uploadText: {
-    color: '#666',
+    color: "#666",
     fontSize: 16,
   },
   buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
     marginBottom: 15,
   },
   button: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: "#4CAF50",
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
   },
   buttonText: {
-    color: 'white',
-    fontWeight: 'bold',
+    color: "white",
+    fontWeight: "bold",
   },
   classifyingContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginVertical: 20,
   },
   classifyingText: {
     marginTop: 10,
     fontSize: 16,
-    color: '#666',
+    color: "#666",
   },
   predictionsContainer: {
-    width: '100%',
-    backgroundColor: '#f9f9f9',
+    width: "100%",
+    backgroundColor: "#f9f9f9",
     padding: 15,
     borderRadius: 10,
     marginTop: 10,
   },
   predictionsTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     marginBottom: 10,
-    color: '#333',
+    color: "#333",
   },
   predictionItem: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     padding: 12,
     borderRadius: 8,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: "#e0e0e0",
   },
   topPrediction: {
-    borderColor: '#4CAF50',
+    borderColor: "#4CAF50",
     borderWidth: 2,
-    backgroundColor: '#f0f8f0',
+    backgroundColor: "#f0f8f0",
   },
   predictionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   predictionRank: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#4CAF50',
+    fontWeight: "bold",
+    color: "#4CAF50",
     marginRight: 12,
     width: 30,
   },
@@ -349,33 +428,33 @@ const styles = StyleSheet.create({
   },
   predictionSpecies: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
   },
   predictionConfidence: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginTop: 2,
   },
   autoFilledBadge: {
     fontSize: 12,
-    color: '#4CAF50',
-    fontWeight: 'bold',
+    color: "#4CAF50",
+    fontWeight: "bold",
     marginTop: 5,
   },
   predictionNote: {
     fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic',
+    color: "#999",
+    fontStyle: "italic",
     marginTop: 8,
-    textAlign: 'center',
+    textAlign: "center",
   },
   form: {
     padding: 20,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: "#ddd",
     borderRadius: 8,
     padding: 12,
     marginBottom: 15,
@@ -383,28 +462,28 @@ const styles = StyleSheet.create({
   },
   confidenceLabel: {
     fontSize: 14,
-    color: '#4CAF50',
+    color: "#4CAF50",
     marginBottom: 10,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   textArea: {
     height: 80,
-    textAlignVertical: 'top',
+    textAlignVertical: "top",
   },
   submitButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: "#4CAF50",
     padding: 15,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 10,
   },
   submitButtonDisabled: {
-    backgroundColor: '#cccccc',
+    backgroundColor: "#cccccc",
   },
   submitButtonText: {
-    color: 'white',
+    color: "white",
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
 });
 
