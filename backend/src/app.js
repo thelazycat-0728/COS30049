@@ -9,6 +9,7 @@ const mapRouter = require('./routes/map.routes');
 const authRouter = require('./routes/auth.routes');
 const adminRouter = require('./routes/admin.routes');
 const expertRouter = require('./routes/expert.routes');
+const userRouter = require('./routes/user.routes'); 
 
 //const errorHandler = require('./middleware/errorHandler');
 
@@ -27,6 +28,7 @@ app.use('/map', mapRouter);
 app.use('/auth', authRouter);
 app.use('/admin', adminRouter);
 app.use('/expert', expertRouter);
+app.use('/user', userRouter);
 
 
 // Health check

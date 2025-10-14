@@ -69,7 +69,7 @@ const requireAuth = async (req, res, next) => {
 
     // 5. Attach user info and token to request object
     req.user = {
-      id: decoded.id || user.id,
+      id: decoded.id || user.user_id,
       email: decoded.email || user.email,
       role: decoded.role || user.role,
       username: user.username

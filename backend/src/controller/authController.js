@@ -49,23 +49,8 @@ class AuthController {
       res.status(500).json({ error: "Registration failed" });
     }
   }
-  // GET /api/auth/profile
-  static async getProfile(req, res) {
-    try {
-      // req.user is set by auth middleware
-      const user = await User.findById(req.user.id);
 
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      res.json({ user });
-    } catch (error) {
-      console.error("Get profile error:", error);
-      res.status(500).json({ error: "Failed to fetch profile" });
-    }
-  }
-
+  
   /**
    * Generate access token (short-lived)
    */
