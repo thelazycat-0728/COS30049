@@ -1,3 +1,6 @@
+const pool = require('../config/database');
+
+
 class TokenBlacklist {
   static async add(token, expiresAt) {
     const query = 'INSERT INTO token_blacklist (token, expires_at) VALUES (?, ?)';
@@ -10,3 +13,7 @@ class TokenBlacklist {
     return rows.length > 0;
   }
 }
+
+
+module.exports = TokenBlacklist;
+

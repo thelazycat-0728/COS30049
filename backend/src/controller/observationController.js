@@ -214,8 +214,15 @@ class ObservationController {
         }
       }
 
-      const { plantId, confidenceScore, status } = req.body;
+      if (!req.body) {
+        return res.status(400).json({
+          success: false,
+          error: "No fields to update",
+        });
+      }
 
+      const { plantId, confidenceScore, status } = req.body;
+ 
       // Check if observation exists
       const observation = await Observation.findById(id);
       if (!observation) {
@@ -279,7 +286,7 @@ class ObservationController {
       }
 
       // Check ownership or admin
-      if (observation.user_id !== req.user.id && req.user.role !== "admin") {
+      if (observation.user_id !== req.user.user_id && req.user.role !== "admin") {
         return res.status(403).json({
           success: false,
           error: "You can only delete your own observations",
