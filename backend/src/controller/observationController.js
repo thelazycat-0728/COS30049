@@ -125,7 +125,7 @@ class ObservationController {
    */
   static async create(req, res) {
     try {
-      const { latitude, longitude, plantId, observationDate, status } =
+      const { public, latitude, longitude, plantId, observationDate, status } =
         req.body;
       const userId = req.user.id;
 
@@ -161,6 +161,7 @@ class ObservationController {
         userId,
         plantId,
         imageUrl,
+        public,
         latitude,
         longtitude: longitude,
         observationDate: observationDate || new Date(),
@@ -221,7 +222,7 @@ class ObservationController {
         });
       }
 
-      const { plantId, confidenceScore, status } = req.body;
+      const { plantId, confidenceScore, status, public } = req.body;
  
       // Check if observation exists
       const observation = await Observation.findById(id);
@@ -232,6 +233,10 @@ class ObservationController {
         });
       }
 
+      if (public !== 1 && public !== 0) {
+        public = undefined;
+      }
+
       // Update observation
       const updateData = {
         confidenceScore: confidenceScore
@@ -240,6 +245,7 @@ class ObservationController {
         plantId: plantId ? parseInt(plantId) : undefined,
         status,
         imageUrl: imageUrl || undefined,
+        public: public ? parseInt(public) : undefined,
       };
 
       const success = await Observation.update(id, updateData);
@@ -313,40 +319,7 @@ class ObservationController {
       });
     }
   }
-
-  /**
-   * POST /api/observations/:id/flag
-   * Flag observation for review
-   */
-  static async flag(req, res) {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-
-      // Check if observation exists
-      const observation = await Observation.findById(id);
-      if (!observation) {
-        return res.status(404).json({
-          success: false,
-          error: "Observation not found",
-        });
-      }
-
-      // Flag observation
-      await Observation.flag(id, req.user.id, reason || "No reason provided");
-
-      res.json({
-        success: true,
-        message: "Observation flagged for review",
-      });
-    } catch (error) {
-      console.error("Flag observation error:", error);
-      res.status(500).json({
-        success: false,
-        error: "Failed to flag observation",
-      });
-    }
-  }
+  
 }
 
 module.exports = ObservationController;

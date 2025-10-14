@@ -9,8 +9,9 @@ class Observation {
       userId,
       plantId,
       imageUrl,
+      public,
       latitude,
-      longtitude,
+      longitude,
       observationDate,
       confidenceScore,
       status,
@@ -19,8 +20,8 @@ class Observation {
 
     const query = `
       INSERT INTO PlantObservations 
-      (user_id, plant_id, image_url, latitude, longitude, observation_date, confidence_score, status, verified_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (user_id, plant_id, image_url, latitude, longitude, public, observation_date, confidence_score, status, verified_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await pool.query(query, [
@@ -28,7 +29,8 @@ class Observation {
       plantId || 31, // Assuming it is unidentified if not provided
       imageUrl,
       latitude,
-      longtitude,
+      public,
+      longitude,
       observationDate,
       confidenceScore,
       status,
@@ -182,6 +184,11 @@ class Observation {
     if (data.confidenceScore !== undefined) {
       updates.push("confidence_score = ?");
       params.push(data.confidenceScore);
+    }
+
+    if (data.public !== undefined) {
+      updates.push("public = ?");
+      params.push(data.public);
     }
 
   
