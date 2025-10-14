@@ -23,6 +23,7 @@ CREATE TABLE Users (
 CREATE TABLE Plants (
     plant_id INT AUTO_INCREMENT PRIMARY KEY,
     scientific_name VARCHAR(255) NOT NULL,
+    species VARCHAR(255),
     common_name VARCHAR(255),
     family VARCHAR(255),
     description TEXT,
@@ -36,6 +37,7 @@ CREATE TABLE PlantObservations (
     observation_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     plant_id INT NOT NULL,
+    public BOOLEAN,
     image_url VARCHAR(500),
     latitude DECIMAL(10,7),
     longitude DECIMAL(10,7),
