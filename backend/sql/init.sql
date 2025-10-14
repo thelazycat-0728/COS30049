@@ -137,8 +137,7 @@ CREATE TABLE token_blacklist (
   INDEX idx_expires (expires_at)
 );
 
--- Clean up expired tokens periodically
-DELETE FROM token_blacklist WHERE expires_at < NOW();
+
 
 -- Create indexes for better performance
 CREATE INDEX idx_sensor_readings_sensor_id ON SensorReadings(sensor_id);
