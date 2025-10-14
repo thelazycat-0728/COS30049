@@ -176,7 +176,7 @@ class Observation {
     // Build dynamic update query
     if (data.plantId !== undefined) {
       updates.push("plant_id = ?");
-      params.push(plantId);
+      params.push(data.plantId);
     }
 
     if (data.confidenceScore !== undefined) {
@@ -202,7 +202,7 @@ class Observation {
     updates.push("updated_at = NOW()");
     params.push(id);
 
-    const query = `UPDATE PlantObservations SET ${updates.join(", ")} WHERE id = ?`;
+    const query = `UPDATE PlantObservations SET ${updates.join(", ")} WHERE observation_id = ?`;
     const [result] = await pool.query(query, params);
 
     return result.affectedRows > 0;
@@ -212,52 +212,12 @@ class Observation {
    * Delete observation
    */
   static async delete(id) {
-    const query = "DELETE FROM observations WHERE id = ?";
+    const query = "DELETE FROM PlantObservations WHERE observation_id = ?";
     const [result] = await pool.query(query, [id]);
     return result.affectedRows > 0;
   }
 
-  /**
-   * Flag observation for review
-   */
-  static async flag(id, userId, reason) {
-    const query = `
-      UPDATE observations 
-      SET flagged = TRUE, updated_at = NOW()
-      WHERE id = ?
-    `;
 
-    await pool.query(query, [id]);
-
-    // Optionally: Create a flag record for tracking
-    const flagQuery = `
-      INSERT INTO observation_flags (observation_id, flagged_by, reason, created_at)
-      VALUES (?, ?, ?, NOW())
-    `;
-
-    try {
-      await pool.query(flagQuery, [id, userId, reason]);
-    } catch (error) {
-      // Table might not exist yet, that's okay
-      console.log("Flag record not created (table may not exist)");
-    }
-
-    return true;
-  }
-
-  /**
-   * Unflag observation
-   */
-  static async unflag(id) {
-    const query = `
-      UPDATE observations 
-      SET flagged = FALSE, updated_at = NOW()
-      WHERE id = ?
-    `;
-
-    const [result] = await pool.query(query, [id]);
-    return result.affectedRows > 0;
-  }
 }
 
 module.exports = Observation;

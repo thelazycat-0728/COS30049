@@ -44,11 +44,6 @@ plantsObservationRouter.delete(
   ObservationController.delete
 );
 
-// POST flag observation (authenticated users)
-plantsObservationRouter.post(
-  '/:id/flag',
-  requireAuth,
-  ObservationController.flag
-);
+
 
 module.exports = plantsObservationRouter;
