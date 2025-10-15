@@ -1,6 +1,6 @@
 const express = require('express');
 const ObservationController = require('../controller/observationController');
-const { requireAuth, requireAdmin, optionalAuth } = require('../middleware/auth');
+const { requireAuth, requireExpert, optionalAuth } = require('../middleware/auth');
 const { validateObservation } = require('../middleware/validation');
 const upload = require('../middleware/upload');
 
@@ -32,7 +32,7 @@ plantsObservationRouter.post(
 // PUT update observation (admin only)
 plantsObservationRouter.put(
   '/:id',
-  requireAdmin,
+  requireExpert,
   upload.single('image'),
   ObservationController.update
 );
@@ -45,6 +45,27 @@ plantsObservationRouter.delete(
 );
 
 // todo: if confidence below certain threshold, ask user if needs to flag
+
+// PATCH toggle public flag (admin only)
+plantsObservationRouter.patch(
+  '/:id/public',
+  requireExpert,
+  ObservationController.togglePublic
+);
+
+// PATCH update geotag (admin only)
+plantsObservationRouter.patch(
+  '/:id/geotag',
+  requireExpert,
+  ObservationController.updateGeotag
+);
+
+// DELETE remove geotag (admin only)
+plantsObservationRouter.delete(
+  '/:id/geotag',
+  requireExpert,
+  ObservationController.removeGeotag
+);
 
 
 module.exports = plantsObservationRouter;
