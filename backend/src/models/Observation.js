@@ -9,7 +9,7 @@ class Observation {
       userId,
       plantId,
       imageUrl,
-      public,
+      public: isPublic,
       latitude,
       longitude,
       observationDate,
@@ -29,8 +29,8 @@ class Observation {
       plantId || 31, // Assuming it is unidentified if not provided
       imageUrl,
       latitude,
-      public,
       longitude,
+      isPublic,
       observationDate,
       confidenceScore,
       status,
