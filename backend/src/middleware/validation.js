@@ -36,7 +36,7 @@ const validateObservation = (req, res, next) => {
 
   // Store parsed values
   req.body.latitude = lat;
-  req.body.longtitude = lng;
+  req.body.longitude = lng;
 
   next();
 };
