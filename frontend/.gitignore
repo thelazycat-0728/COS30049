@@ -132,3 +132,72 @@ ios/build/
 
 # Watchman
 .watchmanconfig
+
+# ============================================
+# NEW ADDITIONS BELOW
+# ============================================
+
+# Android Gradle build files (more comprehensive)
+android/.gradle/
+android/app/.cxx/
+android/app/build/
+android/build/
+android/gradle/
+android/local.properties
+android/*.hprof
+
+# Android generated assets (if model is copied to native assets)
+android/app/src/main/assets/plant_classifier.tflite
+
+# Expo generated files
+.expo/devices.json
+.expo/web/cache/
+
+# Metro bundler cache
+.metro-health-check*
+
+# Image Picker/Manipulator cache
+**/cache/ImagePicker/
+**/cache/ImageManipulator/
+
+# React Native debugger
+.vscode/.react/
+
+# Temporary test images (if you generate test data)
+**/test-images/
+**/temp-uploads/
+
+# Large datasets or training data (if applicable)
+**/training-data/
+**/datasets/
+
+# macOS specific
+**/.DS_Store
+**/._*
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Lock files (uncomment if you want consistency across team)
+# Choose ONE based on your package manager preference:
+# For npm:
+# package-lock.json
+# For yarn:
+# yarn.lock
+# For pnpm:
+# pnpm-lock.yaml
+
+# TypeScript build info
+*.tsbuildinfo
+next-env.d.ts
+
+# Optional: Ignore node_modules but keep package.json
+# (already covered but being explicit)
+node_modules/
+
+# Optional: If using Git LFS for large model files
+# (uncomment if you setup LFS)
+# *.tflite filter=lfs diff=lfs merge=lfs -text
+# *.h5 filter=lfs diff=lfs merge=lfs -text
