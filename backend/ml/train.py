@@ -13,6 +13,9 @@ from torch.utils.data import DataLoader, random_split, Subset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import matplotlib.pyplot as plt
 
+#debug
+if sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
 
 def print_progress(message):
     """Print progress message that will be captured by Node.js"""
@@ -89,7 +92,7 @@ def plot_metrics(history: dict, save_path: str):
     print_progress(f"Saved training plots to {save_path}")
 
 
-#---------------- NEW: Filter classes by minimum image count ----------------
+#---------------- Filter classes by minimum image count ----------------
 def filter_dataset_by_class_size(dataset, min_images: int):
     """
     Filter dataset to only include classes with at least min_images samples.
