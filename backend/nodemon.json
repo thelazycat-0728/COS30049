@@ -1,0 +1,11 @@
+{
+  "ignore": [
+    "ml/models/**/*",
+    "ml/*.pth", 
+    "ml/*.pt",
+    "ml/*.json",
+    "ml/*.png",
+    "ml/*.jpg"
+  ],
+  "ext": "js,json"
+}
