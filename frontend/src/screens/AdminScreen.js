@@ -21,6 +21,7 @@ const AdminScreen = () => {
   // Mock data based on your screenshots
   const [plants, setPlants] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [models, setModels] = useState([]);
 
   useEffect(() => {
     loadMockData();
@@ -62,6 +63,24 @@ const AdminScreen = () => {
         severity: 'critical'
       }
     ]);
+    
+    // Models data
+    setModels([
+      {
+        id: '1',
+        name: 'model1',
+        created: '2025-01-15',
+        active: true,
+        plot: 'https://via.placeholder.com/300x150?text=Model+Plot'
+      },
+      {
+        id: '2',
+        name: 'model2',
+        created: '2025-01-10',
+        active: false,
+        plot: 'https://via.placeholder.com/300x150?text=Model+Plot'
+      }
+    ]);
   };
 
   const sections = [
@@ -70,6 +89,7 @@ const AdminScreen = () => {
     { id: 'users', label: 'Users', icon: 'people' },
     { id: 'sensors', label: 'Sensor Readings', icon: 'hardware-chip' },
     { id: 'alerts', label: 'Alerts', icon: 'warning' },
+    { id: 'models', label: 'Models', icon: 'layers'},
   ];
 
   const renderPlantsSection = () => (
@@ -214,6 +234,46 @@ const AdminScreen = () => {
     </View>
   );
 
+  // Render Models Section
+  const renderModelsSection = () => (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Model Management</Text>
+        <TouchableOpacity style={styles.addButton}>
+          <Ionicons name="add" size={15} color="white" />
+          <Text style={styles.addButtonText}>Train New Model</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView style={styles.contentScroll}>
+        {models.map(model => (
+          <View key={model.id} style={styles.plantCard}>
+            <Text style={styles.plantName}>{model.name}</Text>
+            <Text style={styles.scientificName}>Created: {model.created}</Text>
+
+            <Text style={{ 
+              color: model.active ? 'green' : 'gray',
+              marginBottom: 10,
+              fontWeight: '600'
+            }}>
+              {model.active ? 'ACTIVE' : 'Not Active'}
+            </Text>
+            <TouchableOpacity style={styles.viewDetailsButton}>
+              <Text style={styles.viewDetailsText}>View Details</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+        
+        {models.length === 0 && (
+          <View style={styles.emptyState}>
+            <Ionicons name="layers-outline" size={48} color="#ccc" />
+            <Text style={styles.emptyStateText}>No models added yet</Text>
+            <Text style={styles.emptyStateSubtext}>Train a model to get started</Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+
   const getSeverityColor = (severity) => {
     const colors = {
       low: '#4CAF50',
@@ -236,6 +296,8 @@ const AdminScreen = () => {
         return renderSensorsSection();
       case 'alerts':
         return renderAlertsSection();
+      case 'models':
+        return renderModelsSection();
       default:
         return renderPlantsSection();
     }
@@ -350,6 +412,7 @@ const styles = StyleSheet.create({
     paddingBottom: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    marginTop: 25, //added by junwen  (because the header not showing)
   },
   appTitle: {
     fontSize: 24,
@@ -363,6 +426,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    maxHeight: 220,  //added by junwen  (make the navigation cards smaller vertically)
   },
   navItem: {
     flexDirection: 'row',
