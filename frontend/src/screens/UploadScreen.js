@@ -95,6 +95,7 @@ const UploadScreen = () => {
     setPredictions([]);
 
     try {
+      console.log("Classifying image:", imageUri);
       const results = await PlantClassifierService.classifyImage(imageUri);
       setPredictions(results);
 
@@ -208,7 +209,7 @@ const UploadScreen = () => {
         {predictions.length > 0 && !isClassifying && (
           <View style={styles.predictionsContainer}>
             <Text style={styles.predictionsTitle}>
-              🤖 AI Identification Results:
+              AI Identification Results:
             </Text>
             {predictions.slice(0, 3).map((prediction, index) => (
               <TouchableOpacity
