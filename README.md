@@ -1,4 +1,4 @@
-# 🌿 SmartPlant - Intelligent Plant Conservation & Monitoring System
+# 🌿 SmartPlant - A Community-Driven Mobile App for Plant Species Identification and Conservation
 
 <div align="center">
 
@@ -815,18 +815,6 @@ python convertionScript.py
 - **React Native Community** - For mobile development tools
 - **Expo Team** - For simplifying React Native development
 - **Mosquitto Project** - For the MQTT broker
-
-
----
-
-## 📞 Support
-
-For issues, questions, or suggestions:
-
-- **GitHub Issues**: [Create an issue](https://github.com/yourusername/smartplant/issues)
-- **Email**: support@smartplant.com
-- **Documentation**: [Wiki](https://github.com/yourusername/smartplant/wiki)
-
 
 ---
 
