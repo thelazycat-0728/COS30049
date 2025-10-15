@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms, models
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import matplotlib.pyplot as plt
 
@@ -29,6 +29,7 @@ class Config:
         self.BATCH_SIZE = args.batch_size
         self.IMG_SIZE = (224, 224)
         self.VAL_SPLIT = 0.2  # 20% testing set
+        self.MIN_IMAGES_PER_CLASS = args.min_images_per_class  # NEW: Minimum images required
         self.TOTAL_EPOCHS = args.epochs
         self.STAGE1_EPOCHS = min(10, args.epochs // 3)  #First 1/3 or max 10
         self.LR_STAGE1 = args.learning_rate
@@ -88,16 +89,86 @@ def plot_metrics(history: dict, save_path: str):
     print_progress(f"Saved training plots to {save_path}")
 
 
+#---------------- NEW: Filter classes by minimum image count ----------------
+def filter_dataset_by_class_size(dataset, min_images: int):
+    """
+    Filter dataset to only include classes with at least min_images samples.
+    Returns filtered indices, valid class names, and class mapping.
+    """
+    # Count samples per class
+    class_counts = {}
+    class_to_indices = {}
+    
+    for idx, (_, class_idx) in enumerate(dataset.samples):
+        if class_idx not in class_counts:
+            class_counts[class_idx] = 0
+            class_to_indices[class_idx] = []
+        class_counts[class_idx] += 1
+        class_to_indices[class_idx].append(idx)
+    
+    # Filter valid classes
+    valid_class_indices = [cls_idx for cls_idx, count in class_counts.items() 
+                          if count >= min_images]
+    valid_class_indices.sort()
+    
+    # Get original class names
+    original_classes = dataset.classes
+    
+    # Track skipped classes
+    skipped_classes = []
+    valid_classes = []
+    
+    for cls_idx in range(len(original_classes)):
+        if cls_idx in valid_class_indices:
+            valid_classes.append(original_classes[cls_idx])
+        else:
+            skipped_classes.append(f"{original_classes[cls_idx]} ({class_counts.get(cls_idx, 0)} images)")
+    
+    if skipped_classes:
+        print_progress(f"\n⚠️  WARNING: Skipping {len(skipped_classes)} class(es) with fewer than {min_images} images:")
+        for skipped in skipped_classes:
+            print_progress(f"  - {skipped}")
+        print_progress("")
+    
+    # Create mapping from old class indices to new ones
+    old_to_new_class = {old_idx: new_idx for new_idx, old_idx in enumerate(valid_class_indices)}
+    
+    # Collect valid sample indices
+    valid_indices = []
+    for cls_idx in valid_class_indices:
+        valid_indices.extend(class_to_indices[cls_idx])
+    
+    return valid_indices, valid_classes, old_to_new_class
+
+
 #---------------- Data ----------------
 def prepare_data(config: Config):
-    """Prepare training and validation data loaders"""
+    """Prepare training and validation data loaders with class filtering"""
     print_progress("Loading dataset...")
     
-    # Class names
-    class_names = sorted([p.name for p in Path(config.DATA_DIR).iterdir() if p.is_dir()])
+    # Load full dataset first
+    full_dataset = datasets.ImageFolder(config.DATA_DIR)
+    
+    # Filter by minimum class size
+    valid_indices, class_names, old_to_new_class = filter_dataset_by_class_size(
+        full_dataset, config.MIN_IMAGES_PER_CLASS
+    )
+    
     num_classes = len(class_names)
-    print_progress(f"Detected {num_classes} classes: {', '.join(class_names)}")
-
+    
+    if num_classes == 0:
+        raise ValueError(f"No classes have at least {config.MIN_IMAGES_PER_CLASS} images. Cannot train model.")
+    
+    print_progress(f"Using {num_classes} classes with sufficient data: {', '.join(class_names)}")
+    
+    # Create subset with only valid samples
+    filtered_dataset = Subset(full_dataset, valid_indices)
+    
+    # Update class indices in the dataset
+    # We need to remap the class indices to be consecutive starting from 0
+    original_samples = [full_dataset.samples[i] for i in valid_indices]
+    remapped_samples = [(path, old_to_new_class[cls_idx]) for path, cls_idx in original_samples]
+    
     # Transforms
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(),
@@ -114,31 +185,61 @@ def prepare_data(config: Config):
         transforms.Normalize([0.485, 0.456, 0.406],
                              [0.229, 0.224, 0.225])
     ])
-
-    # Dataset and split
-    dataset = datasets.ImageFolder(config.DATA_DIR, transform=train_transform)
-    val_size = int(len(dataset) * config.VAL_SPLIT)
-    train_size = len(dataset) - val_size
     
-    print_progress(f"Total images: {len(dataset)}")
+    # Create new ImageFolder with filtered data
+    # We'll create a custom dataset class to handle the remapping
+    class RemappedDataset(torch.utils.data.Dataset):
+        def __init__(self, samples, transform, loader):
+            self.samples = samples
+            self.transform = transform
+            self.loader = loader
+        
+        def __len__(self):
+            return len(self.samples)
+        
+        def __getitem__(self, idx):
+            path, target = self.samples[idx]
+            sample = self.loader(path)
+            if self.transform is not None:
+                sample = self.transform(sample)
+            return sample, target
+    
+    # Create datasets with transforms
+    full_remapped_dataset = RemappedDataset(
+        remapped_samples, 
+        train_transform,
+        full_dataset.loader
+    )
+    
+    # Split into train and validation
+    val_size = int(len(full_remapped_dataset) * config.VAL_SPLIT)
+    train_size = len(full_remapped_dataset) - val_size
+    
+    print_progress(f"Total valid images: {len(full_remapped_dataset)}")
     print_progress(f"Training samples: {train_size}")
     print_progress(f"Validation samples: {val_size}")
     
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    val_dataset.dataset.transform = val_transform
-
+    train_dataset, val_dataset = random_split(full_remapped_dataset, [train_size, val_size])
+    
+    # Apply validation transform to val_dataset
+    val_dataset_wrapped = RemappedDataset(
+        [remapped_samples[i] for i in val_dataset.indices],
+        val_transform,
+        full_dataset.loader
+    )
+    
     # Dataloaders
     train_loader = DataLoader(
         train_dataset, 
         batch_size=config.BATCH_SIZE, 
         shuffle=True,
-        num_workers=0  # Changed to 0 for Windows compatibility
+        num_workers=0  # Windows compatibility
     )
     val_loader = DataLoader(
-        val_dataset, 
+        val_dataset_wrapped, 
         batch_size=config.BATCH_SIZE, 
         shuffle=False,
-        num_workers=0  # Changed to 0 for Windows compatibility
+        num_workers=0  # Windows compatibility
     )
 
     return train_loader, val_loader, class_names
@@ -332,7 +433,7 @@ def train_model(model, train_loader, val_loader, config: Config, save_folder: st
 def main():
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-    parser = argparse.ArgumentParser(description='Train plant disease classification model')
+    parser = argparse.ArgumentParser(description='Train plant classification model')
     parser.add_argument('--data-dir', type=str, default=os.path.join(SCRIPT_DIR, 'New_Dataset'), 
                         help='Path to dataset directory')
     parser.add_argument('--epochs', type=int, default=30, 
@@ -341,6 +442,8 @@ def main():
                         help='Batch size for training')
     parser.add_argument('--learning-rate', type=float, default=1e-5, 
                         help='Initial learning rate')
+    parser.add_argument('--min-images-per-class', type=int, default=5, 
+                        help='Minimum number of images required per class (default: 5)')
     parser.add_argument('--model-name', type=str, default=None, 
                         help='Model name (auto-generated if not provided)')
     parser.add_argument('--output-dir', type=str, default='./models', 
@@ -358,11 +461,12 @@ def main():
     print_progress(f"Epochs: {args.epochs}")
     print_progress(f"Batch Size: {args.batch_size}")
     print_progress(f"Learning Rate: {args.learning_rate}")
+    print_progress(f"Min Images Per Class: {args.min_images_per_class}")
     print_progress(f"Data Directory: {args.data_dir}")
     print_progress(f"Output Directory: {args.output_dir}")
     print_progress("=" * 60)
 
-    # Create config - FIXED: Pass args to Config
+    # Create config
     config = Config(args)
     print_progress(f"Using device: {config.DEVICE}")
 
