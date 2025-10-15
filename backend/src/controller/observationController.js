@@ -1,7 +1,6 @@
 const Observation = require("../models/Observation");
-// const AIService = require('../services/aiService');
+const pool = require("../config/database");
 const StorageService = require("../services/storageService");
-// const GeoUtils = require('../utils/geoUtils');
 
 class ObservationController {
   /**
@@ -36,26 +35,7 @@ class ObservationController {
       // Get total count
       const total = await Observation.countAll(filters);
 
-      // Apply GPS masking based on user role
-      // const userRole = req.user?.role || 'public';
-      // observations = observations.map(obs => {
-      //   const canSeeExact = GeoUtils.canSeeExactLocation(userRole, obs.conservation_status);
-
-      //   if (!canSeeExact) {
-      //     const masked = GeoUtils.maskCoordinates(obs.gps_lat, obs.gps_lng);
-      //     return {
-      //       ...obs,
-      //       gps_lat: masked.lat,
-      //       gps_lng: masked.lng,
-      //       location_masked: true
-      //     };
-      //   }
-
-      //   return {
-      //     ...obs,
-      //     location_masked: false
-      //   };
-      // });
+      
 
       res.json({
         success: true,
@@ -93,18 +73,7 @@ class ObservationController {
         });
       }
 
-      // Apply GPS masking
-      // const userRole = req.user?.role || 'public';
-      // const canSeeExact = GeoUtils.canSeeExactLocation(userRole, observation.conservation_status);
-
-      // if (!canSeeExact) {
-      //   const masked = GeoUtils.maskCoordinates(observation.gps_lat, observation.gps_lng);
-      //   observation.gps_lat = masked.lat;
-      //   observation.gps_lng = masked.lng;
-      //   observation.location_masked = true;
-      // } else {
-      //   observation.location_masked = false;
-      // }
+      
 
       res.json({
         success: true,
@@ -125,7 +94,7 @@ class ObservationController {
    */
   static async create(req, res) {
     try {
-      const { public, latitude, longitude, plantId, observationDate, status } =
+      const { public: isPublic, latitude, longitude, plantId, observationDate, status } =
         req.body;
       const userId = req.user.id;
 
@@ -140,30 +109,17 @@ class ObservationController {
         });
       }
 
-      // Get AI prediction
-      let aiResult;
-      try {
-        // aiResult = await AIService.identifyPlant(req.file);
-        console.log("AI identification skipped in this demo.");
-        aiResult = { species: "Hibiscus", confidence: 0.12, alternatives: [] };
-      } catch (error) {
-        console.error("AI identification error:", error);
-        // Continue even if AI fails
-        aiResult = {
-          species: "Unknown",
-          confidence: 0,
-          alternatives: [],
-        };
-      }
+      // Get AI prediction (demo: no external AI call)
+      const aiResult = { species: "Hibiscus", confidence: 0.12, alternatives: [] };
 
       // Create observation
       const observationId = await Observation.create({
         userId,
         plantId,
         imageUrl,
-        public,
+        public: isPublic,
         latitude,
-        longtitude: longitude,
+        longitude,
         observationDate: observationDate || new Date(),
         confidenceScore: aiResult.confidence,
         status: status || "pending",
@@ -197,6 +153,10 @@ class ObservationController {
    */
   static async update(req, res) {
     try {
+      // Enforce admin/expert role for update operations
+      if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'expert')) {
+        return res.status(403).json({ success: false, error: 'Admin or expert role required' });
+      }
       const { id } = req.params;
 
       let imageUrl;
@@ -222,7 +182,7 @@ class ObservationController {
         });
       }
 
-      const { plantId, confidenceScore, status, public } = req.body;
+      const { plantId, confidenceScore, status, public: isPublic } = req.body;
  
       // Check if observation exists
       const observation = await Observation.findById(id);
@@ -233,9 +193,11 @@ class ObservationController {
         });
       }
 
-      if (public !== 1 && public !== 0) {
-        public = undefined;
-      }
+      const publicValue = (isPublic === 1 || isPublic === '1' || isPublic === true)
+        ? 1
+        : (isPublic === 0 || isPublic === '0' || isPublic === false)
+          ? 0
+          : undefined;
 
       // Update observation
       const updateData = {
@@ -245,7 +207,7 @@ class ObservationController {
         plantId: plantId ? parseInt(plantId) : undefined,
         status,
         imageUrl: imageUrl || undefined,
-        public: public ? parseInt(public) : undefined,
+        public: publicValue,
       };
 
       const success = await Observation.update(id, updateData);
@@ -291,8 +253,8 @@ class ObservationController {
         });
       }
 
-      // Check ownership or admin
-      if (observation.user_id !== req.user.user_id && req.user.role !== "admin") {
+      // Check ownership or admin/expert
+      if (observation.user_id !== req.user.user_id && req.user.role !== "admin" && req.user.role !== "expert") {
         return res.status(403).json({
           success: false,
           error: "You can only delete your own observations",
@@ -317,6 +279,140 @@ class ObservationController {
         success: false,
         error: "Failed to delete observation",
       });
+    }
+  }
+
+  /**
+   * PATCH /observations/:id/public
+   * Toggle public mask for an observation (admin only)
+   */
+  static async togglePublic(req, res) {
+    try {
+      // Enforce admin/expert role
+      if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'expert')) {
+        return res.status(403).json({ success: false, error: 'Admin or expert role required' });
+      }
+      const id = parseInt(req.params.id, 10);
+      const { public: pub } = req.body || {};
+      if (!Number.isFinite(id)) {
+        return res.status(400).json({ success: false, error: 'Invalid observation id' });
+      }
+      // Accept boolean or 0/1 strings/numbers
+      const newVal = (pub === true || pub === '1' || pub === 1) ? 1 : (pub === false || pub === '0' || pub === 0) ? 0 : null;
+      if (newVal == null) {
+        return res.status(400).json({ success: false, error: 'public must be true/false or 1/0' });
+      }
+      const [result] = await pool.execute(
+        'UPDATE PlantObservations SET public = ?, updated_at = NOW() WHERE observation_id = ?',
+        [newVal, id]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, error: 'Observation not found' });
+      }
+      return res.json({ success: true, observation_id: id, public: !!newVal });
+    } catch (err) {
+      console.error('Error updating public flag:', err);
+      res.status(500).json({ success: false, error: 'Failed to update public flag' });
+    }
+  }
+
+  /**
+   * PATCH /observations/:id/geotag
+   * Update latitude/longitude for a specific observation (admin only)
+   */
+  static async updateGeotag(req, res) {
+    try {
+      // Enforce admin/expert role
+      if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'expert')) {
+        return res.status(403).json({ success: false, error: 'Admin or expert role required' });
+      }
+      const id = parseInt(req.params.id, 10);
+      const { latitude, longitude } = req.body || {};
+      if (!Number.isFinite(id)) {
+        return res.status(400).json({ success: false, error: 'Invalid observation id' });
+      }
+
+      if (latitude == null || longitude == null) {
+        return res.status(400).json({ success: false, error: 'latitude and longitude are required' });
+      }
+      const lat = Number(latitude);
+      const lon = Number(longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return res.status(400).json({ success: false, error: 'latitude/longitude must be numeric' });
+      }
+      if (lat < -90 || lat > 90) {
+        return res.status(400).json({ success: false, error: 'latitude must be between -90 and 90' });
+      }
+      if (lon < -180 || lon > 180) {
+        return res.status(400).json({ success: false, error: 'longitude must be between -180 and 180' });
+      }
+
+      const [result] = await pool.execute(
+        'UPDATE PlantObservations SET latitude = ?, longitude = ?, updated_at = NOW() WHERE observation_id = ?',
+        [lat, lon, id]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, error: 'Observation not found' });
+      }
+
+      const [rows] = await pool.execute(
+        `SELECT po.observation_id, po.latitude, po.longitude, po.status, po.observation_date, po.image_url,
+                p.plant_id, p.common_name, p.scientific_name, p.family, p.description, p.conservation_status
+         FROM PlantObservations po JOIN Plants p ON p.plant_id = po.plant_id
+         WHERE po.observation_id = ?`,
+        [id]
+      );
+      const r = rows[0];
+      return res.json({
+        success: true,
+        observation: r ? {
+          observation_id: r.observation_id,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          status: r.status,
+          observation_date: r.observation_date,
+          image_url: r.image_url,
+          plant: {
+            plant_id: r.plant_id,
+            common_name: r.common_name,
+            scientific_name: r.scientific_name,
+            family: r.family,
+            description: r.description,
+            conservation_status: r.conservation_status,
+          }
+        } : null
+      });
+    } catch (err) {
+      console.error('Error updating geotag:', err);
+      res.status(500).json({ success: false, error: 'Failed to update geotag' });
+    }
+  }
+
+  /**
+   * DELETE /observations/:id/geotag
+   * Remove latitude/longitude for a specific observation (admin only)
+   */
+  static async removeGeotag(req, res) {
+    try {
+      // Enforce admin/expert role
+      if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'expert')) {
+        return res.status(403).json({ success: false, error: 'Admin or expert role required' });
+      }
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) {
+        return res.status(400).json({ success: false, error: 'Invalid observation id' });
+      }
+      const [result] = await pool.execute(
+        'UPDATE PlantObservations SET latitude = NULL, longitude = NULL, updated_at = NOW() WHERE observation_id = ?',
+        [id]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, error: 'Observation not found' });
+      }
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('Error removing geotag:', err);
+      res.status(500).json({ success: false, error: 'Failed to remove geotag' });
     }
   }
   
