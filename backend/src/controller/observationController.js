@@ -122,7 +122,7 @@ class ObservationController {
         longitude,
         observationDate: observationDate || new Date(),
         confidenceScore: aiResult.confidence,
-        status: status || "pending",
+        status: "pending",
       });
 
       // Get created observation
