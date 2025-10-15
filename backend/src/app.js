@@ -30,7 +30,7 @@ app.use('/auth', authRouter);
 app.use('/admin', adminRouter);
 app.use('/expert', expertRouter);
 app.use('/user', userRouter);
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 
 // Health check
