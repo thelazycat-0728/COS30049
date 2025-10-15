@@ -57,7 +57,7 @@ const AdminScreen = () => {
     if (trainingStatus?.isTraining) {
       interval = setInterval(() => {
         checkTrainingStatus();
-      }, 2000); // Check every 2 seconds
+      }, 8000); // Check every 8 seconds
     }
     return () => {
       if (interval) clearInterval(interval);
