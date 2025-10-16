@@ -1,444 +1,272 @@
-// src/controller/trainingController.js
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs').promises;
-const fsSync = require('fs');
-
-// Store training process and status
-let trainingProcess = null;
-let trainingStatus = {
-  isTraining: false,
-  progress: 0,
-  epoch: 0,
-  totalEpochs: 0,
-  loss: null,
-  accuracy: null,
-  startTime: null,
-  logs: [],
-  error: null
-};
-
-// Path to your Python training script
-const PYTHON_SCRIPT_PATH = path.join(__dirname, '../../ml/train.py');
-const MODELS_DIR = path.join(__dirname, '../../ml/models');
-const ACTIVE_MODEL_PATH = path.join(__dirname, '../../ml/active_model.txt');
-
-// Ensure directories exist
-const ensureDirectories = async () => {
-  try {
-    await fs.mkdir(MODELS_DIR, { recursive: true });
-  } catch (error) {
-    console.error('Error creating directories:', error);
-  }
-};
-
-ensureDirectories();
+const aiServerService = require("../services/AiServerTraining");
+const Training = require("../models/Training");
 
 /**
- * Start model training
+ * Start training
  */
-const startTraining = async (req, res) => {
+exports.startTraining = async (req, res) => {
   try {
-    // Check if training is already in progress
-    if (trainingStatus.isTraining) {
-      return res.status(400).json({
+    const { epochs, batchSize, learningRate } = req.body;
+    const modelName = req.body.modelName || `model_${Date.now()}`;
+
+    const userId = req.user.id;
+
+    console.log("📚 Training request from user:", userId);
+
+    const activeTraining = await Training.getActiveTraining();
+    if (activeTraining) {
+      return res.status(409).json({
         success: false,
-        message: 'Training is already in progress'
+        error: "Another training is already in progress",
+        currentTraining: {
+          id: activeTraining.id,
+          modelName: activeTraining.modelName,
+          startedAt: activeTraining.startedAt,
+          progress: activeTraining.progress,
+        },
       });
     }
 
-    // Get training parameters from request
+    const health = await aiServerService.healthCheck();
+    if (health.status !== "healthy") {
+      return res.status(503).json({
+        success: false,
+        error: "AI server is not available",
+        details: health,
+      });
+    }
+
+    const aiStatus = await aiServerService.getTrainingStatus();
+    if (aiStatus.status.is_training) {
+      return res.status(409).json({
+        success: false,
+        error: "AI server is already training",
+        details: aiStatus.status,
+      });
+    }
+    // Create training record
+    const training = await Training.create(userId, modelName);
+
+    // Start training
+    await aiServerService.startTraining({
+      datasetPath: process.env.TRAINING_DATASET_PATH || "./uploads",
+      epochs: epochs || 50,
+      batchSize: batchSize || 32,
+      learningRate: learningRate || 0.001,
+      modelName: modelName,
+    });
+
+    // Update status
+    await Training.updateStatus(training, "in_progress", {
+      startedAt: new Date(),
+    });
+
+    res.json({
+      success: true,
+      message: "Training started",
+      data: training,
+    });
+  } catch (error) {
+    console.error("❌ Training failed:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to start training",
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * Get training status
+ */
+exports.getTrainingStatus = async (req, res) => {
+  try {
+    const result = await aiServerService.getTrainingStatus();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Stop training
+ */
+exports.stopTraining = async (req, res) => {
+  try {
+    const result = await aiServerService.stopTraining();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+exports.finishTraining = async (req, res) => {
+  try {
     const {
-      epochs = 50,
-      batchSize = 32,
-      learningRate = 0.001,
-      modelName = `model_${Date.now()}`
+      modelName,
+      status,
+      speciesCount,
+      totalImages,
+      trainAccuracy,
+      valAccuracy,
+      modelPath,
+      labelPath,
+      history,
+      error,
     } = req.body;
 
-    // Validate Python script exists
-    if (!fsSync.existsSync(PYTHON_SCRIPT_PATH)) {
-      return res.status(500).json({
-        success: false,
-        message: 'Training script not found'
-      });
-    }
+    console.log("📥 Training completion notification received");
+    console.log(`   Model: ${modelName}`);
+    console.log(`   Status: ${status}`);
 
-    // Reset training status
-    trainingStatus = {
-      isTraining: true,
-      progress: 0,
-      epoch: 0,
-      totalEpochs: epochs,
-      loss: null,
-      accuracy: null,
-      startTime: new Date(),
-      logs: [],
-      error: null,
-      modelName
-    };
+    if (status === "failed") {
+      console.error(`   Error: ${error}`);
 
-    // Start Python training process
-    trainingProcess = spawn('python', [
-      PYTHON_SCRIPT_PATH,
-      '--epochs', epochs.toString(),
-      '--batch-size', batchSize.toString(),
-      '--learning-rate', learningRate.toString(),
-      '--model-name', modelName,
-      '--output-dir', MODELS_DIR
-    ]);
+      // Find and update training record
+      const latestTraining = await Training.getLatest();
 
-    // Capture stdout (training logs)
-    trainingProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      console.log('Training output:', output);
-      
-      // Parse training progress
-      parseTrainingOutput(output);
-      
-      // Store log
-      trainingStatus.logs.push({
-        timestamp: new Date(),
-        message: output
-      });
-      
-      // Keep only last 100 logs
-      if (trainingStatus.logs.length > 100) {
-        trainingStatus.logs.shift();
-      }
-    });
-
-    // Capture stderr (errors)
-    trainingProcess.stderr.on('data', (data) => {
-      const error = data.toString();
-      console.error('Training error:', error);
-      trainingStatus.error = error;
-      trainingStatus.logs.push({
-        timestamp: new Date(),
-        message: `ERROR: ${error}`,
-        isError: true
-      });
-    });
-
-    // Handle process completion
-    trainingProcess.on('close', (code) => {
-      console.log(`Training process exited with code ${code}`);
-      trainingStatus.isTraining = false;
-      
-      if (code === 0) {
-        trainingStatus.progress = 100;
-        trainingStatus.logs.push({
-          timestamp: new Date(),
-          message: 'Training completed successfully!'
+      if (latestTraining && latestTraining.model_version === modelName) {
+        await Training.updateStatus(latestTraining.id, "failed", {
+          errorMessage: error,
+          completedAt: new Date()
         });
-      } else {
-        trainingStatus.error = `Training failed with exit code ${code}`;
       }
-    });
 
-    res.json({
-      success: true,
-      message: 'Training started successfully',
-      status: trainingStatus
-    });
-
-  } catch (error) {
-    console.error('Error starting training:', error);
-    trainingStatus.isTraining = false;
-    trainingStatus.error = error.message;
-    
-    res.status(500).json({
-      success: false,
-      message: 'Failed to start training',
-      error: error.message
-    });
-  }
-};
-
-/**
- * Get current training status
- */
-const getTrainingStatus = (req, res) => {
-  res.json({
-    success: true,
-    status: trainingStatus
-  });
-};
-
-/**
- * Stop training process
- */
-const stopTraining = (req, res) => {
-  try {
-    if (!trainingStatus.isTraining) {
-      return res.status(400).json({
-        success: false,
-        message: 'No training in progress'
+      return res.json({
+        success: true,
+        message: "Training failure recorded",
       });
     }
 
-    if (trainingProcess) {
-      trainingProcess.kill('SIGTERM');
-      trainingStatus.isTraining = false;
-      trainingStatus.logs.push({
-        timestamp: new Date(),
-        message: 'Training stopped by user'
-      });
-    }
+    console.log(`   Species: ${speciesCount}`);
+    console.log(`   Images: ${totalImages}`);
+    console.log(`   Train Accuracy: ${trainAccuracy}%`);
+    console.log(`   Val Accuracy: ${valAccuracy}%`);
 
-    res.json({
-      success: true,
-      message: 'Training stopped successfully',
-      status: trainingStatus
-    });
+    // Find the training record by model name
+    const latestTraining = await Training.getLatest();
 
-  } catch (error) {
-    console.error('Error stopping training:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to stop training',
-      error: error.message
-    });
-  }
-};
-
-/**
- * Get list of trained models
- */
-const getModels = async (req, res) => {
-  try {
-    // Read all directories in models folder (each training creates a folder)
-    const items = await fs.readdir(MODELS_DIR, { withFileTypes: true });
-    const modelDirs = items.filter(item => item.isDirectory());
-    
-    // Get active model
-    let activeModel = null;
-    try {
-      activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
-      activeModel = activeModel.trim();
-    } catch (error) {
-      // No active model set
-    }
-
-    // Get model details
-    const models = await Promise.all(
-      modelDirs.map(async (dir) => {
-        const dirPath = path.join(MODELS_DIR, dir.name);
-        const stats = await fs.stat(dirPath);
-        
-        // Check for model files in directory
-        const dirFiles = await fs.readdir(dirPath);
-        const hasBestModel = dirFiles.includes('best_model.pth');
-        const hasFinalModel = dirFiles.includes('mobilenetv2_final.pth');
-        const hasLabelMap = dirFiles.includes('label_map.json');
-        
-        // Get total size
-        let totalSize = 0;
-        for (const file of dirFiles) {
-          const fileStats = await fs.stat(path.join(dirPath, file));
-          totalSize += fileStats.size;
-        }
-        
-        return {
-          id: dir.name,
-          name: dir.name,
-          created: stats.birthtime,
-          size: totalSize,
-          active: activeModel === dir.name,
-          path: dirPath,
-          hasBestModel,
-          hasFinalModel,
-          hasLabelMap
-        };
-      })
-    );
-
-    // Sort by creation date (newest first)
-    models.sort((a, b) => b.created - a.created);
-
-    res.json({
-      success: true,
-      models
-    });
-
-  } catch (error) {
-    console.error('Error getting models:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get models',
-      error: error.message
-    });
-  }
-};
-
-
-const deleteModel = async (req, res) => {
-  try {
-    const { modelName } = req.params;
-    const forceDelete = req.query.force === 'true'; // Add this line
-    
-    console.log(`Delete request for model: ${modelName}, force: ${forceDelete}`);
-    
-    const modelDir = path.join(MODELS_DIR, modelName);
-    
-    // Check if model directory exists
-    try {
-      await fs.access(modelDir);
-      console.log(`Model directory found: ${modelDir}`);
-    } catch (error) {
-      console.log(`Model directory not found: ${modelDir}`);
+    if (!latestTraining || latestTraining.model_version !== modelName) {
+      console.warn("⚠️  Training record not found for model:", modelName);
       return res.status(404).json({
         success: false,
-        message: `Model "${modelName}" not found`
+        error: "Training record not found",
       });
     }
 
-    // Check if it's the active model (unless force delete)
-    let activeModel = null;
-    try {
-      activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
-      activeModel = activeModel.trim();
-      console.log(`Active model: ${activeModel}`);
-    } catch (error) {
-      console.log('No active model set');
-    }
+    const trainingAccuracyDecimal = trainAccuracy / 100; // Convert to decimal
+    const validationAccuracyDecimal = valAccuracy / 100; // Convert to decimal
 
-    if (activeModel === modelName && !forceDelete) { // Modified this line
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete active model. Please activate another model first or use force delete.'
-      });
-    }
-
-    // Delete the entire model directory
-    console.log(`Deleting model directory: ${modelDir}`);
-    await fs.rm(modelDir, { recursive: true, force: true });
-    
-    console.log(`Model directory deleted successfully: ${modelDir}`);
-    
-    res.json({
-      success: true,
-      message: `Model ${modelName} deleted successfully`
+    // Update training record with results
+    await Training.updateStatus(latestTraining.id, "completed", {
+      numImages: totalImages,
+      numSpecies: speciesCount,
+      trainingAccuracy: trainingAccuracyDecimal,
+      validationAccuracy: validationAccuracyDecimal,
+      modelVersion: modelName,
     });
 
+    console.log("✅ Training record updated in database");
+
+    // TODO: Optionally store additional metadata
+    // - speciesCount
+    // - totalImages
+    // - history (training curves)
+
+    res.json({
+      success: true,
+      message: "Training completion recorded",
+      data: {
+        trainingId: latestTraining.id,
+        modelName,
+        status: "completed",
+        speciesCount,
+        totalImages,
+        trainAccuracy,
+        valAccuracy,
+      },
+    });
   } catch (error) {
-    console.error('Error deleting model:', error);
+    console.error("❌ Failed to process training completion:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete model',
-      error: error.message
+      error: "Failed to process training completion",
+      message: error.message,
     });
   }
 };
 
 /**
- * Activate a model
+ * Get all models
  */
-const activateModel = async (req, res) => {
+exports.getModels = async (req, res) => {
+  try {
+    const result = await aiServerService.listModels();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Delete model
+ */
+exports.deleteModel = async (req, res) => {
   try {
     const { modelName } = req.params;
-    
-    // Check if model exists
-    const files = await fs.readdir(MODELS_DIR);
-    const modelFile = files.find(file => 
-      path.parse(file).name === modelName && (file.endsWith('.pth') || file.endsWith('.pt'))
-    );
-
-    if (!modelFile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Model not found'
-      });
-    }
-
-    // Set as active model
-    await fs.writeFile(ACTIVE_MODEL_PATH, modelName);
-
-    res.json({
-      success: true,
-      message: 'Model activated successfully'
-    });
-
+    const result = await aiServerService.deleteModel(modelName);
+    res.json(result);
   } catch (error) {
-    console.error('Error activating model:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to activate model',
-      error: error.message
+      error: error.message,
     });
   }
 };
 
 /**
- * Parse training output to extract metrics
+ * Activate model (set as current)
  */
-const parseTrainingOutput = (output) => {
-  //Parse epoch: "Epoch 5/50"
-  const epochMatch = output.match(/Epoch[:\s]+(\d+)[\/\s]+(\d+)/i);
-  if (epochMatch) {
-    trainingStatus.epoch = parseInt(epochMatch[1]);
-    trainingStatus.totalEpochs = parseInt(epochMatch[2]);
-    trainingStatus.progress = (trainingStatus.epoch / trainingStatus.totalEpochs) * 100;
-  }
-
-  //Detect training stage
-  if (output.includes('Stage 1: Training classifier head') || 
-      output.includes('Training classifier head')) {
-    trainingStatus.stage = 'stage1';
-  }
-  
-  if (output.includes('Stage 2: Fine-tuning entire network') || 
-      output.includes('Fine-tuning entire network')) {
-    trainingStatus.stage = 'stage2';
-  }
-
-  //Parse loss: "Loss: 0.1234"
-  const lossMatch = output.match(/Loss[:\s]+([\d.]+)/i);
-  if (lossMatch) {
-    trainingStatus.loss = parseFloat(lossMatch[1]);
-  }
-
-  //Parse accuracy: "Acc: 0.9567"
-  const accMatch = output.match(/Acc(?:uracy)?[:\s]+([\d.]+)/i);
-  if (accMatch) {
-    trainingStatus.accuracy = parseFloat(accMatch[1]);
-  }
-};
-
-const getModelPlot = (req, res) => {
-  try{
+exports.activateModel = async (req, res) => {
+  try {
     const { modelName } = req.params;
-    const modelDir = path.join(MODELS_DIR, modelName);
-    const plotPath = path.join(modelDir, 'training_plot.png');
 
-    console.log(`Looking for plot at: ${plotPath}`);
+    // TODO: Update .env or config to use this model
+    // For now, just return success
 
-    if(fsSync.existsSync(plotPath)){
-      res.setHeader('Content-Type', 'image/png');
-      res.setHeader('Cache-Control', 'public, max-age=3600'); 
-      res.sendFile(plotPath);
-    } else {
-      console.log('Plot file not found:', plotPath);
-      res.status(404).json({ 
-        error: 'Training plot not found for this model',
-        message: 'The training plot diagram does not exist for this model.'
-      });
-    }
+    res.json({
+      success: true,
+      message: `Model ${modelName} activated`,
+    });
   } catch (error) {
-    console.error('Error serving model plot:', error);
-    res.status(500).json({ 
-      error: 'Failed to load training plot',
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message,
     });
   }
 };
 
-
-module.exports = {
-  startTraining,
-  getTrainingStatus,
-  stopTraining,
-  getModels,
-  deleteModel,
-  activateModel,
-  getModelPlot
+/**
+ * Get model training plot
+ */
+exports.getModelPlot = async (req, res) => {
+  try {
+    const { modelName } = req.params;
+    const result = await aiServerService.getModelPlot(modelName);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
 };

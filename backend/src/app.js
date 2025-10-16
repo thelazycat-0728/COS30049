@@ -12,6 +12,9 @@ const adminRouter = require('./routes/admin.routes');
 const expertRouter = require('./routes/expert.routes');
 const userRouter = require('./routes/user.routes'); 
 
+
+
+
 //const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -31,6 +34,7 @@ app.use('/admin', adminRouter);
 app.use('/expert', expertRouter);
 app.use('/user', userRouter);
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+
 
 
 // Health check
