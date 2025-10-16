@@ -14,7 +14,6 @@ function buildFilterWhereAndParams(query) {
   const { family, conservation_status, start_date, end_date } = query || {};
   const where = [
     "po.latitude IS NOT NULL AND po.longitude IS NOT NULL",
-    "po.status = 'verified'",
   ];
   const params = [];
 
