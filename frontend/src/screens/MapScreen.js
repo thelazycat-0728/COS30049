@@ -147,6 +147,28 @@ const MapScreen = () => {
       // Keep only items with valid coordinates
       const withCoords = list.filter((loc) => loc?.coordinates && typeof loc.coordinates.lat === 'number' && typeof loc.coordinates.lon === 'number');
       setLocations(withCoords);
+
+      // Auto-fit region to include all markers for better visibility
+      if (withCoords.length > 0) {
+        const lats = withCoords.map((loc) => loc.coordinates.lat);
+        const lons = withCoords.map((loc) => loc.coordinates.lon);
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLon = Math.min(...lons);
+        const maxLon = Math.max(...lons);
+        const centerLat = (minLat + maxLat) / 2;
+        const centerLon = (minLon + maxLon) / 2;
+        const latSpan = Math.max(0.01, maxLat - minLat);
+        const lonSpan = Math.max(0.01, maxLon - minLon);
+        const paddingFactor = 1.4; // add some padding around extremes
+        const nextRegion = {
+          latitude: centerLat,
+          longitude: centerLon,
+          latitudeDelta: latSpan * paddingFactor,
+          longitudeDelta: lonSpan * paddingFactor,
+        };
+        setMapRegion(nextRegion);
+      }
     } catch (err) {
       console.error('Error fetching locations:', err);
       setMarkersError(err.message || 'Failed to fetch locations');
@@ -521,8 +543,6 @@ const MapScreen = () => {
                 <View style={styles.plantCardInfo}>
                   <Text style={styles.plantCardName}>{selectedPlant.name}</Text>
                   <Text style={styles.plantCardScientific}>{selectedPlant.scientificName}</Text>
-                  {/* Note: "2.3km away" is hardcoded in the original snippet, kept as is */}
-                  <Text style={styles.plantCardDistance}>2.3km away</Text>
                   
                   <TouchableOpacity style={styles.viewDetailsButton} onPress={handleViewDetails}>
                     <Text style={styles.viewDetailsText}>View Details</Text>
