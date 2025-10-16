@@ -2,14 +2,65 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons'; //
 import HomeScreen from './src/screens/HomeScreen';
 import MapScreen from './src/screens/MapScreen';
 import UploadScreen from './src/screens/UploadScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import AdminScreen from './src/screens/AdminScreen';
+import PlantDetailScreen from './src/screens/PlantDetailScreen';
 
 const Tab = createBottomTabNavigator();
+const Stack = createStackNavigator();
+
+// Home Stack Navigator
+function HomeStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="HomeMain" component={HomeScreen} />
+      <Stack.Screen 
+        name="PlantDetail" 
+        component={PlantDetailScreen} 
+        options={{
+          headerShown: true,
+          headerTitle: 'Plant Details',
+          headerStyle: {
+            backgroundColor: '#2e7d32',
+          },
+          headerTintColor: '#fff',
+          headerTitleStyle: {
+            fontWeight: 'bold',
+          },
+        }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+// Map Stack Navigator
+function MapStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="MapMain" component={MapScreen} />
+      <Stack.Screen 
+        name="PlantDetailScreen" 
+        component={PlantDetailScreen} 
+        options={{
+          headerShown: true,
+          headerTitle: 'Plant Details',
+          headerStyle: {
+            backgroundColor: '#2e7d32',
+          },
+          headerTintColor: '#fff',
+          headerTitleStyle: {
+            fontWeight: 'bold',
+          },
+        }}
+      />
+    </Stack.Navigator>
+  );
+}
 
 export default function App() {
   return (
@@ -38,8 +89,8 @@ export default function App() {
           headerShown: false,
         })}
       >
-        <Tab.Screen name="Home" component={HomeScreen} />
-        <Tab.Screen name="Map" component={MapScreen} />
+        <Tab.Screen name="Home" component={HomeStack} />
+        <Tab.Screen name="Map" component={MapStack} />
         <Tab.Screen name="Upload" component={UploadScreen} />
         <Tab.Screen name="Profile" component={ProfileScreen} />
         <Tab.Screen name="Admin" component={AdminScreen} />
