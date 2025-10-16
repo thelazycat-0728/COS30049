@@ -1,7 +1,7 @@
 const express = require("express");
 const authController = require("../controller/authController");
 const auth = require("../middleware/auth");
-const loginLimiter = require("../middleware/rateLimiter");
+const { loginLimiter } = require("../middleware/rateLimiter");
 
 const authRouter = express.Router();
 
@@ -19,8 +19,5 @@ authRouter.post("/verify-mfa", loginLimiter, authController.verifyMFA);
 
 authRouter.post("/resend-mfa", authController.resendMFA);
 
-/* authRouter.post("/testing-route", auth.requireAuth, (req, res) => {
-  res.json({ message: "You have accessed a protected route", user: req.user });
-}) */
 
 module.exports = authRouter;

@@ -14,7 +14,7 @@ class CleanupService {
         
         // Clean expired refresh tokens
         const [refreshResult] = await pool.query(
-          'DELETE FROM refresh_tokens WHERE expires_at < NOW()'
+          'DELETE FROM refresh_tokens WHERE expires_at < NOW() OR revoked = TRUE'
         );
         
         // Clean expired MFA codes
