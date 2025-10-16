@@ -17,6 +17,8 @@ class ObservationController {
         userId,
         start_date,
         end_date,
+        public: pub,
+        conservation_status,
       } = req.query;
 
       const filters = {
@@ -27,6 +29,8 @@ class ObservationController {
         userId: userId,
         startDate: start_date,
         endDate: end_date,
+        public: typeof pub !== 'undefined' ? (pub === '1' || pub === 1 || pub === true ? 1 : 0) : undefined,
+        conservationStatus: conservation_status || undefined, // comma-separated supported
       };
 
       // Get observations

@@ -73,6 +73,8 @@ class Observation {
       userId,
       startDate,
       endDate,
+      public: isPublic,
+      conservationStatus,
     } = filters;
 
     const offset = (page - 1) * limit;
@@ -89,9 +91,12 @@ class Observation {
         o.status,
         o.observation_date,
         o.created_at,
-        u.username
+        u.username,
+        o.public,
+        p.conservation_status
       FROM PlantObservations o
       LEFT JOIN Users u ON o.user_id = u.user_id
+      LEFT JOIN Plants p ON p.plant_id = o.plant_id
       WHERE 1=1
     `;
 
@@ -123,6 +128,21 @@ class Observation {
       params.push(endDate);
     }
 
+    if (typeof isPublic !== 'undefined') {
+      query += ` AND o.public = ?`;
+      params.push(isPublic);
+    }
+
+    if (conservationStatus) {
+      const consList = typeof conservationStatus === 'string'
+        ? conservationStatus.split(',').map(s => s.trim()).filter(Boolean)
+        : Array.isArray(conservationStatus) ? conservationStatus : [];
+      if (consList.length > 0) {
+        query += ` AND p.conservation_status IN (${consList.map(() => '?').join(',')})`;
+        params.push(...consList);
+      }
+    }
+
     query += ` ORDER BY o.created_at DESC LIMIT ? OFFSET ?`;
     params.push(parseInt(limit), parseInt(offset));
 
@@ -134,9 +154,9 @@ class Observation {
    * Count total observations (for pagination)
    */
   static async countAll(filters = {}) {
-    const { plantId, status, userId, startDate, endDate } = filters;
+    const { plantId, status, userId, startDate, endDate, public: isPublic, conservationStatus } = filters;
 
-    let query = `SELECT COUNT(*) as total FROM PlantObservations o WHERE 1=1`;
+    let query = `SELECT COUNT(*) as total FROM PlantObservations o LEFT JOIN Plants p ON p.plant_id = o.plant_id WHERE 1=1`;
     const params = [];
 
     if (plantId) {
@@ -162,6 +182,21 @@ class Observation {
     if (endDate) {
       query += ` AND o.observation_date <= ?`;
       params.push(endDate);
+    }
+
+    if (typeof isPublic !== 'undefined') {
+      query += ` AND o.public = ?`;
+      params.push(isPublic);
+    }
+
+    if (conservationStatus) {
+      const consList = typeof conservationStatus === 'string'
+        ? conservationStatus.split(',').map(s => s.trim()).filter(Boolean)
+        : Array.isArray(conservationStatus) ? conservationStatus : [];
+      if (consList.length > 0) {
+        query += ` AND p.conservation_status IN (${consList.map(() => '?').join(',')})`;
+        params.push(...consList);
+      }
     }
 
     const [rows] = await pool.query(query, params);
