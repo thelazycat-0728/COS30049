@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 const userController = require('../controller/userController');
 const authController = require('../controller/authController');
 const trainingController = require('../controller/trainingController');
+const {AIAuthenticate, authenticateAIServer} = require('../middleware/authenticateAIServer');
 
 
 const adminRouter = express.Router();
@@ -25,6 +26,7 @@ adminRouter.use((req, res, next) => {
 adminRouter.post('/train', auth.requireAdmin, trainingController.startTraining);
 adminRouter.get('/train/status', auth.requireAdmin, trainingController.getTrainingStatus);
 adminRouter.post('/train/stop', auth.requireAdmin, trainingController.stopTraining);
+adminRouter.put('/train/finished', authenticateAIServer, trainingController.finishTraining);
 adminRouter.get('/models', auth.requireAdmin, trainingController.getModels);
 adminRouter.delete('/models/:modelName', auth.requireAdmin, trainingController.deleteModel);
 adminRouter.patch('/models/:modelName/activate', auth.requireAdmin, trainingController.activateModel);

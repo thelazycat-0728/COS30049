@@ -139,6 +139,23 @@ CREATE TABLE token_blacklist (
   INDEX idx_expires (expires_at)
 );
 
+CREATE TABLE training_history (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  triggered_by INT NOT NULL,
+  status ENUM('pending', 'in_progress', 'completed', 'failed') DEFAULT 'pending',
+  num_images INT DEFAULT 0,
+  num_species INT DEFAULT 0,
+  training_accuracy DECIMAL(5, 4) NULL,
+  validation_accuracy DECIMAL(5, 4) NULL,
+  model_version VARCHAR(50) NULL,
+  error_message TEXT NULL,
+  started_at DATETIME NULL,
+  completed_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (triggered_by) REFERENCES Users(user_id) ON DELETE CASCADE,
+  INDEX idx_status (status),
+  INDEX idx_created (created_at)
+)
 
 
 -- Create indexes for better performance
