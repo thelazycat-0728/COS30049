@@ -54,7 +54,15 @@ const AdminScreen = () => {
 
   useEffect(() => {
     loadMockData();
-    loadModels(); //added
+    (async () => {
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert('Login Required', 'Please sign in to access admin features.');
+        return;
+      }
+      await fetchPlants();
+      await loadModels(); //added
+    })();
   }, []);
 
 
@@ -78,18 +86,6 @@ const AdminScreen = () => {
 
 
   const loadMockData = () => {
-    // Plants data from first screenshot
-    setPlants([
-      {
-        id: '1',
-        name: 'Sunflower',
-        scientificName: 'Helianthus annuus',
-        description: 'Annual flowering plant known for its large yellow flowers that track the sun.',
-        family: 'Asteraceae',
-        image: 'https://images.unsplash.com/photo-1597848212624-e5f4b302a6e2?w=400'
-      }
-    ]);
-
     // Alerts data from second screenshot
     setAlerts([
       {
@@ -113,6 +109,142 @@ const AdminScreen = () => {
         severity: 'critical'
       }
     ]);
+  };
+
+  // ===================================================================================================
+  // Plants - fetch, add, edit, delete
+  // ===================================================================================================
+  const [savingPlant, setSavingPlant] = useState(false);
+  const [plantForm, setPlantForm] = useState({
+    common_name: '',
+    scientific_name: '',
+    species: '',
+    family: '',
+    description: '',
+    conservation_status: '',
+  });
+
+  const fetchPlants = async () => {
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`${API_URL}/admin/plants`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
+      const list = Array.isArray(data.plants) ? data.plants : [];
+      // Map backend rows to UI structure
+      setPlants(list.map(row => ({
+        id: row.plant_id,
+        name: row.common_name || `Plant #${row.plant_id}`,
+        scientificName: row.scientific_name || '',
+        description: row.description || '',
+        family: row.family || '',
+        species: row.species || '',
+        conservation_status: row.conservation_status || '',
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        plant_id: row.plant_id,
+      })));
+    } catch (err) {
+      console.error('Plants fetch error:', err);
+      Alert.alert('Error', err.message || 'Failed to load plants');
+    }
+  };
+
+  const openAddPlant = () => {
+    setSelectedPlant(null);
+    setPlantForm({
+      common_name: '',
+      scientific_name: '',
+      species: '',
+      family: '',
+      description: '',
+      conservation_status: '',
+    });
+    setPlantModalVisible(true);
+  };
+
+  const openEditPlant = (plant) => {
+    setSelectedPlant(plant);
+    setPlantForm({
+      common_name: plant.name || '',
+      scientific_name: plant.scientificName || '',
+      species: plant.species || '',
+      family: plant.family || '',
+      description: plant.description || '',
+      conservation_status: plant.conservation_status || '',
+    });
+    setPlantModalVisible(true);
+  };
+
+  const handleSavePlant = async () => {
+    try {
+      setSavingPlant(true);
+      const token = await getAuthToken();
+      const isEdit = !!selectedPlant?.plant_id;
+      const url = isEdit ? `${API_URL}/admin/plants/${selectedPlant.plant_id}` : `${API_URL}/admin/plants`;
+      const method = isEdit ? 'PUT' : 'POST';
+      const payload = { ...plantForm };
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `Failed to ${isEdit ? 'update' : 'create'} plant`);
+      }
+      setPlantModalVisible(false);
+      setSelectedPlant(null);
+      await fetchPlants();
+      Alert.alert('Success', `Plant ${isEdit ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+      console.error('Save plant error:', err);
+      Alert.alert('Error', err.message || 'Failed to save plant');
+    } finally {
+      setSavingPlant(false);
+    }
+  };
+
+  const handleDeletePlant = async (plant) => {
+    Alert.alert(
+      'Delete Plant',
+      `Are you sure you want to delete ${plant.name || 'this plant'}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const token = await getAuthToken();
+              const res = await fetch(`${API_URL}/admin/plants/${plant.plant_id}`, {
+                method: 'DELETE',
+                headers: {
+                  ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                },
+              });
+              const data = await res.json();
+              if (!res.ok || !data?.success) {
+                throw new Error(data?.error || 'Failed to delete plant');
+              }
+              await fetchPlants();
+              Alert.alert('Deleted', 'Plant deleted successfully');
+            } catch (err) {
+              console.error('Delete plant error:', err);
+              Alert.alert('Error', err.message || 'Failed to delete plant');
+            }
+          },
+        },
+      ]
+    );
   };
 
 
@@ -531,7 +663,7 @@ const AdminScreen = () => {
         <Text style={styles.sectionTitle}>Plants Management</Text>
         <TouchableOpacity 
           style={styles.addButton}
-          onPress={() => setPlantModalVisible(true)}
+          onPress={openAddPlant}
         >
           <Ionicons name="add" size={20} color="white" />
           <Text style={styles.addButtonText}>Add Plant</Text>
@@ -545,18 +677,30 @@ const AdminScreen = () => {
               <Text style={styles.plantName}>{plant.name}</Text>
             </View>
             <Text style={styles.scientificName}>{plant.scientificName}</Text>
+            {plant.conservation_status ? (
+              <View style={[styles.consBadge, { backgroundColor: getConservationColor(plant.conservation_status) }]}>
+                <Text style={styles.consText}>
+                  {(plant.conservation_status || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                </Text>
+              </View>
+            ) : null}
             <Text style={styles.plantDescription}>{plant.description}</Text>
             <Text style={styles.plantFamily}>Family: {plant.family}</Text>
-            
-            <TouchableOpacity 
-              style={styles.viewDetailsButton}
-              onPress={() => {
-                setSelectedPlant(plant);
-                // You can open a details modal here if needed
-              }}
-            >
-              <Text style={styles.viewDetailsText}>View Details</Text>
-            </TouchableOpacity>
+            <View style={styles.modelActions}>
+              <TouchableOpacity 
+                style={styles.viewDetailsButton}
+                onPress={() => openEditPlant(plant)}
+              >
+                <Text style={styles.viewDetailsText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.deleteButton}
+                onPress={() => handleDeletePlant(plant)}
+              >
+                <Ionicons name="trash" size={18} color="white" />
+                <Text style={styles.addButtonText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ))}
         
@@ -1241,7 +1385,16 @@ const AdminScreen = () => {
                     ))}
                   </View>
 
-                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+                  
+                </>
+              ) : (
+                <View style={styles.plotError}>
+                  <Ionicons name="alert-circle" size={32} color="#F44336" />
+                  <Text style={styles.plotErrorText}>No observation selected</Text>
+                </View>
+              )}
+            </ScrollView>
+            <View style={styles.modalActions}>
                     <TouchableOpacity
                       style={[styles.cancelButton]}
                       onPress={() => setObsDetailVisible(false)}
@@ -1291,14 +1444,6 @@ const AdminScreen = () => {
                       )}
                     </TouchableOpacity>
                   </View>
-                </>
-              ) : (
-                <View style={styles.plotError}>
-                  <Ionicons name="alert-circle" size={32} color="#F44336" />
-                  <Text style={styles.plotErrorText}>No observation selected</Text>
-                </View>
-              )}
-            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1313,7 +1458,7 @@ const AdminScreen = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add New Plant</Text>
+              <Text style={styles.modalTitle}>{selectedPlant ? 'Edit Plant' : 'Add New Plant'}</Text>
               <TouchableOpacity onPress={() => setPlantModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
@@ -1321,10 +1466,28 @@ const AdminScreen = () => {
             
             <ScrollView style={styles.modalBody}>
               <Text style={styles.inputLabel}>Plant Name</Text>
-              <TextInput style={styles.textInput} placeholder="Enter plant name" />
+              <TextInput 
+                style={styles.textInput} 
+                placeholder="Enter plant name" 
+                value={plantForm.common_name}
+                onChangeText={(t) => setPlantForm(prev => ({ ...prev, common_name: t }))}
+              />
               
               <Text style={styles.inputLabel}>Scientific Name</Text>
-              <TextInput style={styles.textInput} placeholder="Enter scientific name" />
+              <TextInput 
+                style={styles.textInput} 
+                placeholder="Enter scientific name" 
+                value={plantForm.scientific_name}
+                onChangeText={(t) => setPlantForm(prev => ({ ...prev, scientific_name: t }))}
+              />
+
+              <Text style={styles.inputLabel}>Species</Text>
+              <TextInput 
+                style={styles.textInput} 
+                placeholder="Enter species" 
+                value={plantForm.species}
+                onChangeText={(t) => setPlantForm(prev => ({ ...prev, species: t }))}
+              />
               
               <Text style={styles.inputLabel}>Description</Text>
               <TextInput 
@@ -1332,10 +1495,37 @@ const AdminScreen = () => {
                 placeholder="Enter description" 
                 multiline 
                 numberOfLines={3}
+                value={plantForm.description}
+                onChangeText={(t) => setPlantForm(prev => ({ ...prev, description: t }))}
               />
               
               <Text style={styles.inputLabel}>Family</Text>
-              <TextInput style={styles.textInput} placeholder="Enter family" />
+              <TextInput 
+                style={styles.textInput} 
+                placeholder="Enter family" 
+                value={plantForm.family}
+                onChangeText={(t) => setPlantForm(prev => ({ ...prev, family: t }))}
+              />
+
+              <Text style={styles.inputLabel}>Conservation Status</Text>
+              <View>
+                {CONSERVATION_OPTIONS.filter(o => o.key !== '').map(opt => (
+                  <TouchableOpacity
+                    key={`form-cons-${opt.key}`}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                    onPress={() => setPlantForm(prev => ({ ...prev, conservation_status: opt.key }))}
+                  >
+                    <Ionicons
+                      name={plantForm.conservation_status === opt.key ? 'radio-button-on' : 'radio-button-off'}
+                      size={20}
+                      color={plantForm.conservation_status === opt.key ? '#2e7d32' : '#666'}
+                    />
+                    <View style={[styles.consBadge, { backgroundColor: getConservationColor(opt.key), marginTop: 0, marginLeft: 6 }]}> 
+                      <Text style={styles.consText}>{opt.label}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </ScrollView>
             
             <View style={styles.modalActions}>
@@ -1345,8 +1535,12 @@ const AdminScreen = () => {
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton}>
-                <Text style={styles.saveButtonText}>Save Plant</Text>
+              <TouchableOpacity 
+                style={[styles.saveButton, savingPlant && styles.disabledButton]}
+                onPress={handleSavePlant}
+                disabled={savingPlant}
+              >
+                <Text style={styles.saveButtonText}>{selectedPlant ? 'Update Plant' : 'Save Plant'}</Text>
               </TouchableOpacity>
             </View>
           </View>
