@@ -381,11 +381,7 @@ Ensure you have the following installed:
    npx expo run:ios
    ```
 
-   **Using Expo Go App:**
-   - Install "Expo Go" app on your phone
-   - Scan the QR code from terminal
-   - App will load on your device
-
+   **Cannot use Expo GO as this project uses TFLite Library, which is not supported in Expo GO. Use an emulator instead, or if you are rich, use a physical device :D**
 ---
 
 ### IoT Setup
