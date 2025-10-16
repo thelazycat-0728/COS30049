@@ -29,7 +29,7 @@ plantsObservationRouter.post(
   ObservationController.create
 );
 
-// PUT update observation (admin only)
+// PUT update observation (admin or expert only)
 plantsObservationRouter.put(
   '/:id',
   requireExpert,
