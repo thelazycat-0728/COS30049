@@ -23,7 +23,7 @@ const RegisterScreen = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
 
   // In production, prefer an https URL and load from config/env
-  const API_BASE = 'http://192.168.0.114:3000';
+  const API_BASE = 'http://10.0.2.2:5000';
 
   const validateEmail = (value) => /\S+@\S+\.\S+/.test(value || '');
   const validatePassword = (value) => {
@@ -81,6 +81,7 @@ const RegisterScreen = ({ navigation }) => {
       }
 
       // Check username availability before proceeding
+      
       const taken = await isUsernameTaken(username);
       if (taken) {
         Alert.alert('Username taken', 'That username is already in use. Please choose another.');
@@ -88,6 +89,9 @@ const RegisterScreen = ({ navigation }) => {
       }
 
       setSubmitting(true);
+
+      
+      
 
       // Secure API request (JSON, POST). Backend hashes and stores securely.
       const res = await fetch(`${API_BASE}/auth/register`, {
@@ -109,6 +113,7 @@ const RegisterScreen = ({ navigation }) => {
         { text: 'OK', onPress: () => navigation.navigate('Login') }
       ]);
     } catch (e) {
+      console.log(e);
       Alert.alert('Network error', 'Unable to register. Please try again.');
     } finally {
       setSubmitting(false);
