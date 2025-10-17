@@ -13,7 +13,6 @@ import {
   Alert,
 } from "react-native";
 
-
 const API_BASE = "http://10.0.2.2:5000";
 
 const LoginScreen = ({ navigation }) => {
@@ -34,8 +33,22 @@ const LoginScreen = ({ navigation }) => {
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        const msg = data?.error || `Login failed (HTTP ${res.status})`;
-        Alert.alert("Error", msg);
+        if (res.status === 429) {
+          Alert.alert(
+            "You have sent too many requests",
+            "Please wait before trying again."
+          );
+          return;
+        } else if (res.status === 401) {
+          Alert.alert(
+            "Invalid credentials",
+            "Please check your email and password."
+          );
+        } else {
+          const msg = data?.error || `Login failed (HTTP ${res.status})`;
+          Alert.alert("Error", msg);
+        }
+
         return;
       }
 
@@ -43,7 +56,6 @@ const LoginScreen = ({ navigation }) => {
       Alert.alert("Success", "Login successful!", [
         { text: "OK", onPress: () => navigation.navigate("MainApp") },
       ]);
-
     } catch (e) {
       console.log(e);
       Alert.alert("Network error", "Unable to login. Please try again.");
