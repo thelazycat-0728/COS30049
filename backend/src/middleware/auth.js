@@ -4,6 +4,7 @@ const User = require("../models/User");
 require("dotenv").config();
 const TokenBlacklist = require("../models/TokenBlacklist");
 
+const MAX_TOKEN_LIFETIME = 15 * 60;
 /**
  * Basic authentication middleware
  * Verifies JWT token and attaches user info to request
@@ -53,6 +54,25 @@ const requireAuth = async (req, res, next) => {
         });
       }
       throw error; // Other errors
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const tokenLifetime = decoded.exp - decoded.iat;
+
+    if (tokenLifetime > MAX_TOKEN_LIFETIME) {
+      return res.status(401).json({
+        success: false,
+        error: "Token lifetime exceeds maximum allowed duration",
+      });
+    }
+
+    // ✅ NEW: Validate token hasn't been tampered with (exp shouldn't be in the future beyond max)
+    const expectedMaxExp = decoded.iat + MAX_TOKEN_LIFETIME;
+    if (decoded.exp > expectedMaxExp) {
+      return res.status(401).json({
+        success: false,
+        error: "Token expiry has been tampered with",
+      });
     }
 
     // 4. Optional: Verify user still exists and is active
@@ -248,4 +268,5 @@ module.exports = {
   optionalAuth,
   requireOwnership,
   rateLimit,
+  MAX_TOKEN_LIFETIME
 };
