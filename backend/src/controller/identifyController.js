@@ -80,12 +80,10 @@ class IdentifyController {
         new ExifImage({ image: req.file.buffer }, async (error, exifData) => {
           if (error) {
             console.log('EXIF extraction error:', error.message);
-            const observationId = await insertObservation({ image_url: imageUrl, lat: null, lon: null });
             return res.json({ 
               coordinates: { lat: null, lon: null }, 
               googleMapsUrl: null,
               image_url: imageUrl, 
-              observationId,
               message: 'Image uploaded successfully, but no GPS data found'
             });
           }
@@ -93,12 +91,10 @@ class IdentifyController {
           const gpsCoords = extractGPSFromExif(exifData);
           if (!gpsCoords) {
             console.log('No valid GPS coordinates found in EXIF data');
-            const observationId = await insertObservation({ image_url: imageUrl, lat: null, lon: null });
             return res.json({ 
               coordinates: { lat: null, lon: null }, 
               googleMapsUrl: null,
               image_url: imageUrl, 
-              observationId,
               message: 'Image uploaded successfully, but no GPS data found'
             });
           }
@@ -107,23 +103,19 @@ class IdentifyController {
           const googleMapsUrl = `https://maps.google.com/?q=${lat},${lon}`;
           console.log('GPS coordinates extracted:', lat, lon);
 
-          const observationId = await insertObservation({ image_url: imageUrl, lat, lon, status: 'verified' });
           return res.json({ 
             coordinates: { lat, lon }, 
             googleMapsUrl, 
             image_url: imageUrl, 
-            observationId,
-            message: 'Image uploaded and location extracted successfully'
+            message: 'Location extracted successfully. Click Submit to save.'
           });
         });
       } catch (err) {
         console.error('Server error during image processing:', err);
-        const observationId = await insertObservation({ image_url: imageUrl, lat: null, lon: null });
         res.json({ 
           coordinates: { lat: null, lon: null }, 
           googleMapsUrl: null,
           image_url: imageUrl, 
-          observationId,
           message: 'Image uploaded successfully, but GPS extraction failed'
         });
       }
@@ -160,12 +152,10 @@ class IdentifyController {
         new ExifImage({ image: imageBuffer }, async (error, exifData) => {
           if (error) {
             console.log('EXIF extraction error for base64:', error.message);
-            const observationId = await insertObservation({ image_url: imageUrl, lat: null, lon: null });
             return res.json({
               coordinates: { lat: null, lon: null },
               googleMapsUrl: null,
               image_url: imageUrl,
-              observationId,
               message: 'Image uploaded successfully, but no GPS data found'
             });
           }
@@ -173,12 +163,10 @@ class IdentifyController {
           const gpsCoords = extractGPSFromExif(exifData);
           if (!gpsCoords) {
             console.log('No valid GPS coordinates found in base64 EXIF data');
-            const observationId = await insertObservation({ image_url: imageUrl, lat: null, lon: null });
             return res.json({ 
               coordinates: { lat: null, lon: null }, 
               googleMapsUrl: null,
               image_url: imageUrl, 
-              observationId,
               message: 'Image uploaded successfully, but no GPS data found'
             });
           }
@@ -187,29 +175,62 @@ class IdentifyController {
           const googleMapsUrl = `https://maps.google.com/?q=${lat},${lon}`;
           console.log('GPS coordinates extracted from base64:', lat, lon);
 
-          const observationId = await insertObservation({ image_url: imageUrl, lat, lon, status: 'verified' });
           return res.json({ 
             coordinates: { lat, lon }, 
             googleMapsUrl, 
             image_url: imageUrl, 
-            observationId,
-            message: 'Image uploaded and location extracted successfully'
+            message: 'Location extracted successfully. Click Submit to save.'
           });
         });
       } catch (error) {
         console.error('Server error during base64 processing:', error);
-        const observationId = await insertObservation({ image_url: imageUrl, lat: null, lon: null });
         res.json({ 
           coordinates: { lat: null, lon: null }, 
           googleMapsUrl: null,
           image_url: imageUrl, 
-          observationId,
           message: 'Image uploaded successfully, but GPS extraction failed'
         });
       }
     } catch (error) {
       console.error('extractLocationBase64 unexpected error:', error);
       res.status(500).json({ error: 'Server error during image processing' });
+    }
+  }
+
+  static async submitObservation(req, res) {
+    try {
+      const { image_url, lat, lon, user_id, plant_id, status } = req.body || {};
+      if (!image_url) {
+        return res.status(400).json({ error: 'image_url is required' });
+      }
+
+      const parsedLat = lat != null ? (typeof lat === 'number' ? lat : parseFloat(lat)) : null;
+      const parsedLon = lon != null ? (typeof lon === 'number' ? lon : parseFloat(lon)) : null;
+
+      const observationId = await insertObservation({
+        user_id,
+        plant_id,
+        image_url,
+        lat: parsedLat,
+        lon: parsedLon,
+        status,
+      });
+
+      const googleMapsUrl = (parsedLat != null && parsedLon != null)
+        ? `https://maps.google.com/?q=${parsedLat},${parsedLon}`
+        : null;
+
+      return res.json({
+        success: true,
+        observationId,
+        image_url,
+        coordinates: { lat: parsedLat ?? null, lon: parsedLon ?? null },
+        googleMapsUrl,
+        message: 'Observation saved successfully'
+      });
+    } catch (error) {
+      console.error('submitObservation error:', error);
+      res.status(500).json({ error: 'Failed to save observation' });
     }
   }
 }
