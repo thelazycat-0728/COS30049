@@ -17,6 +17,12 @@ identifyRouter.post(
   IdentifyController.extractLocationBase64
 );
 
+// Submit observation using previously uploaded image_url and optional coords
+identifyRouter.post(
+  '/submit-observation',
+  IdentifyController.submitObservation
+);
+
 // Placeholder routes kept for compatibility/demo
 identifyRouter.post('/', (req, res) => {
   res.send('Identify route');
