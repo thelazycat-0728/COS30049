@@ -38,6 +38,8 @@ const UploadScreen = () => {
   const [mapRegion, setMapRegion] = useState(null);
   const [googleMapsUrl, setGoogleMapsUrl] = useState(null);
   const [pendingUpload, setPendingUpload] = useState(null);
+  const [backendImageUrl, setBackendImageUrl] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   // Helper: extract decimal coords from EXIF data for immediate preview
   const extractCoordsFromExif = (exif) => {
@@ -124,6 +126,7 @@ const UploadScreen = () => {
       }
 
       const coords = data?.coordinates || null;
+      setBackendImageUrl(data?.image_url || null);
       if (coords && typeof coords.lat === 'number' && typeof coords.lon === 'number') {
         setExtractedCoords(coords);
         setGoogleMapsUrl(data?.googleMapsUrl || null);
@@ -185,6 +188,7 @@ const UploadScreen = () => {
       }
 
       const coords = data?.coordinates || null;
+      setBackendImageUrl(data?.image_url || null);
       if (coords && typeof coords.lat === 'number' && typeof coords.lon === 'number') {
         setExtractedCoords(coords);
         setGoogleMapsUrl(data?.googleMapsUrl || null);
@@ -317,6 +321,35 @@ const UploadScreen = () => {
       setPendingUpload(null);
     } catch (err) {
       console.warn('confirmUpload error:', err);
+    }
+  };
+
+  const submitObservationToBackend = async () => {
+    try {
+      if (!backendImageUrl) {
+        Alert.alert('Missing image', 'No uploaded image URL found. Please process an image first.');
+        return;
+      }
+      setSaving(true);
+      const lat = extractedCoords?.lat ?? null;
+      const lon = extractedCoords?.lon ?? null;
+      const res = await fetch(`${API_BASE}/identify/submit-observation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ image_url: backendImageUrl, lat, lon }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.error || `Submit failed (HTTP ${res.status})`;
+        Alert.alert('Submit error', msg);
+        return;
+      }
+      Alert.alert('Success', 'Observation saved successfully');
+    } catch (err) {
+      console.error('submitObservationToBackend error:', err);
+      Alert.alert('Network error', 'Failed to submit observation. Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -518,25 +551,32 @@ const UploadScreen = () => {
         )}
         {image && pendingUpload && (
            <View style={styles.pendingCard}>
-             <Text style={styles.pendingTitle}>Pending Upload (not saved yet)</Text>
-             <Text style={styles.pendingText}>Confirm to save or cancel to discard.</Text>
              <View style={styles.pendingButtons}>
-               <TouchableOpacity
-                 style={[styles.button, styles.submitButtonSmall]}
-                 onPress={confirmUpload}
-                 disabled={uploading}
-               >
-                 <Text style={styles.buttonText}>{uploading ? 'Submitting...' : 'Submit'}</Text>
-               </TouchableOpacity>
-               <TouchableOpacity
+              <TouchableOpacity
                  style={[styles.button, styles.cancelButtonSmall]}
                  onPress={cancelUpload}
                  disabled={uploading}
                >
                  <Text style={styles.buttonText}>Cancel</Text>
                </TouchableOpacity>
+               <TouchableOpacity
+                 style={[styles.button, styles.submitButtonSmall]}
+                 onPress={confirmUpload}
+                 disabled={uploading}
+               >
+                 <Text style={styles.buttonText}>{uploading ? 'Submitting...' : 'Process Image'}</Text>
+               </TouchableOpacity>
              </View>
            </View>
+         )}
+         {backendImageUrl && (
+           <TouchableOpacity
+             style={[styles.button, styles.submitButton]}
+             onPress={submitObservationToBackend}
+             disabled={saving}
+           >
+             <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Submit Observation'}</Text>
+           </TouchableOpacity>
          )}
         </View>
 
@@ -773,33 +813,17 @@ const styles = StyleSheet.create({
   },
   pendingCard: {
     width: "100%",
-    backgroundColor: "#fff3e0",
-    padding: 15,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#ffe0b2",
     marginTop: 10,
-  },
-  pendingTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#e65100",
-    marginBottom: 6,
-  },
-  pendingText: {
-    fontSize: 14,
-    color: "#6d4c41",
-    marginBottom: 10,
   },
   pendingButtons: {
     flexDirection: "row",
     justifyContent: "space-around",
   },
   submitButtonSmall: {
-    backgroundColor: "#1976d2",
+    backgroundColor: "#4CAF50",
   },
   cancelButtonSmall: {
-    backgroundColor: "#d32f2f",
+    backgroundColor: "#4CAF50",
   },
 });
 
