@@ -261,20 +261,6 @@ async function testJWTManipulation() {
             console.log("⚠️  Unexpected error:", reuseError.response?.status);
           }
         }
-
-        // ============================================
-        // Test 8: Validate valid token (sanity check)
-        // ============================================
-        console.log("\n🧪 Test 7: Valid token before logout (sanity check)");
-
-        // Login again to get fresh token
-        const freshLoginRes = await axios.post(`${BASE_URL}/auth/login`, {
-          email: "jonathanyeokk@gmail.com",
-          password: "helloworld123",
-        });
-
-        // We'd need MFA code again, so skip this test
-        console.log("⏭️  Skipped (would require another MFA code)");
       } else {
         // Login succeeded without MFA (MFA might be disabled)
         console.log("⚠️  WARNING: MFA not required for this account");
