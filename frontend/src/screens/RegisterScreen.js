@@ -10,18 +10,109 @@ import {
   ScrollView,
   SafeAreaView,
   StatusBar,
+  Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 const RegisterScreen = ({ navigation }) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
-  const handleRegister = () => {
-    // For now, just navigate to main app
-    // In real app, you would add registration logic here
-    navigation.replace('MainApp');
+  // In production, prefer an https URL and load from config/env
+  const API_BASE = 'http://192.168.0.114:3000';
+
+  const validateEmail = (value) => /\S+@\S+\.\S+/.test(value || '');
+  const validatePassword = (value) => {
+    if (typeof value !== 'string') return false;
+    const hasUpper = /[A-Z]/.test(value);
+    const hasLower = /[a-z]/.test(value);
+    const hasNumber = /\d/.test(value);
+    const hasSymbol = /[^A-Za-z0-9]/.test(value);
+    const hasMinLen = value.length >= 8;
+    return hasUpper && hasLower && hasNumber && hasSymbol && hasMinLen;
+  };
+  const validateName = (value) => (value || '').trim().length >= 2;
+
+  const isUsernameTaken = async (username) => {
+    try {
+      const url = `${API_BASE}/auth/check-username?username=${encodeURIComponent(username)}`;
+      const res = await fetch(url, { method: 'GET' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        // If the check endpoint fails, fail open to avoid blocking registration unnecessarily
+        return false;
+      }
+      return !!data?.exists;
+    } catch (e) {
+      // Network issues: don't block the user, just skip availability check
+      return false;
+    }
+  };
+
+  const handleRegister = async () => {
+    try {
+      if (submitting) return;
+      const username = (fullName || '').trim();
+      const emailTrimmed = (email || '').trim().toLowerCase();
+
+      // Client-side validation (keeps UI intact; alerts for feedback)
+      if (!validateName(username)) {
+        Alert.alert('Invalid name', 'Please enter your full name.');
+        return;
+      }
+      if (!validateEmail(emailTrimmed)) {
+        Alert.alert('Invalid email', 'Please enter a valid email address.');
+        return;
+      }
+      if (!validatePassword(password)) {
+        Alert.alert(
+          'Weak password',
+          'Password must include uppercase, lowercase, number, and symbol (min 8 characters).'
+        );
+        return;
+      }
+      if (password !== confirmPassword) {
+        Alert.alert('Mismatch', 'Passwords do not match.');
+        return;
+      }
+
+      // Check username availability before proceeding
+      const taken = await isUsernameTaken(username);
+      if (taken) {
+        Alert.alert('Username taken', 'That username is already in use. Please choose another.');
+        return;
+      }
+
+      setSubmitting(true);
+
+      // Secure API request (JSON, POST). Backend hashes and stores securely.
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email: emailTrimmed, password }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const msg = data?.error || `Registration failed (HTTP ${res.status})`;
+        Alert.alert('Error', msg);
+        return;
+      }
+
+      // Success: backend persists user; prompt login for MFA flow
+      Alert.alert('Success', 'Account created. Please sign in.', [
+        { text: 'OK', onPress: () => navigation.navigate('Login') }
+      ]);
+    } catch (e) {
+      Alert.alert('Network error', 'Unable to register. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const goToLogin = () => {
@@ -67,14 +158,26 @@ const RegisterScreen = ({ navigation }) => {
 
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Password</Text>
+              <View style={styles.passwordContainer}>
               <TextInput
                 style={styles.input}
                 placeholder="Create a password"
                 value={password}
                 onChangeText={setPassword}
-                secureTextEntry
+                secureTextEntry={!showPassword}
                 autoCapitalize="none"
               />
+              <TouchableOpacity
+                style={styles.passwordToggle}
+                onPress={() => setShowPassword(prev => !prev)} // Toggle function
+              >
+                <Ionicons
+                  name={showPassword ? 'eye' : 'eye-off'} // Change icon based on state
+                  size={24}
+                  color="#6c757d"
+                />
+              </TouchableOpacity>
+              </View>  
             </View>
 
             <View style={styles.inputContainer}>
@@ -153,6 +256,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
+  },
+
+  passwordToggle: {
+    flex: 1, // Allows TextInput to take up most of the space
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    backgroundColor: 'transparent',
+    position: 'absolute',
+    right: 0,
   },
   registerButton: {
     backgroundColor: '#2e7d32',
