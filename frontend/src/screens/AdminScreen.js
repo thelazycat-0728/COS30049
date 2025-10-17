@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapView, { Marker } from 'react-native-maps';
-const API_URL = 'http://192.168.0.114:3000'; //change to your pc IPv4 address or server
+const API_URL = "http://10.0.2.2:5000";
 
 
 const AdminScreen = () => {
@@ -299,7 +299,8 @@ const AdminScreen = () => {
   const startTraining = async () => {
     try {
       setLoading(true);
-      const token = await getAuthToken();
+      // const token = await getAuthToken();
+      const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MTUsImVtYWlsIjoiam9uYXRoYW55ZW9ra0BnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NjA2OTg4OTAsImV4cCI6MTc2MDY5OTc5MH0.Ogeq5TruCbQr_vXtjEAUxGHChBaC2qL3gXoBBYTABA8'; // For testing purposes only
         
       const response = await fetch(`${API_URL}/admin/train`, {
         method: 'POST',
@@ -316,12 +317,15 @@ const AdminScreen = () => {
       });
 
       const data = await response.json();
+
+     
         
       if (response.ok) {
         setTrainingStatus(data.status);
         setTrainingModalVisible(false);
         Alert.alert('Success', 'Model training started successfully!');
       } else {
+        
         Alert.alert('Error', data.message || 'Failed to start training');
       }
     } catch (error) {

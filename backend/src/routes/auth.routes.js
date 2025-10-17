@@ -17,7 +17,7 @@ authRouter.post("/logout-all", auth.requireAuth, authController.logoutAll);
 
 authRouter.post("/refresh-token", authController.refresh);
 
-authRouter.post("/verify-mfa", loginLimiter, authController.verifyMFA);
+authRouter.post("/verify-mfa",  authController.verifyMFA);
 
 authRouter.post("/resend-mfa", authController.resendMFA);
 
