@@ -255,10 +255,12 @@ const AdminScreen = () => {
   const loadModels = async () => {
     try {
       console.log('Loading models from backend...');
-      
-      // Remove the Authorization header for now
-      const response = await fetch(`${API_URL}/admin/models`);
-      
+      const token = await getAuthToken();
+      const response = await fetch(`${API_URL}/admin/models`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       console.log('Response status:', response.status);
       
       if (response.ok) {
