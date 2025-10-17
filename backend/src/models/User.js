@@ -27,6 +27,13 @@ class User {
     return rows[0];
   }
 
+  // READ (by username)
+  static async findByUsername(username) {
+    const query = 'SELECT * FROM Users WHERE username = ?';
+    const [rows] = await pool.query(query, [username]);
+    return rows[0];
+  }
+
   // READ (all with pagination)
   static async findAll(limit = 10, offset = 0) {
     const query = 'SELECT id, username, email, role, created_at FROM Users LIMIT ? OFFSET ?';
