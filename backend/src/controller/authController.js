@@ -23,15 +23,23 @@ class AuthController {
   static async register(req, res) {
     try {
       const { username, email, password } = req.body;
+      const trimmedUsername = (username || '').trim();
+      const trimmedEmail = (email || '').trim().toLowerCase();
 
       // Check if user exists
-      const existingUser = await User.findByEmail(email);
+      const existingUser = await User.findByEmail(trimmedEmail);
       if (existingUser) {
         return res.status(400).json({ error: "Email already registered" });
       }
 
+      // Check if username is taken
+      const existingByUsername = await User.findByUsername(trimmedUsername);
+      if (existingByUsername) {
+        return res.status(400).json({ error: "Username already taken" });
+      }
+
       // Create user (model handles password hashing)
-      const userId = await User.create({ username, email, password });
+      const userId = await User.create({ username: trimmedUsername, email: trimmedEmail, password });
 
       // Get created user
       const user = await User.findById(userId);
@@ -48,6 +56,21 @@ class AuthController {
     } catch (error) {
       console.error("Register error:", error);
       res.status(500).json({ error: "Registration failed" });
+    }
+  }
+
+  // GET /api/auth/check-username?username=...
+  static async checkUsername(req, res) {
+    try {
+      const username = (req.query.username || '').trim();
+      if (!username || username.length < 2) {
+        return res.status(400).json({ success: false, error: 'username is required' });
+      }
+      const existing = await User.findByUsername(username);
+      return res.json({ success: true, exists: !!existing });
+    } catch (error) {
+      console.error('checkUsername error:', error);
+      return res.status(500).json({ success: false, error: 'Failed to check username' });
     }
   }
 
