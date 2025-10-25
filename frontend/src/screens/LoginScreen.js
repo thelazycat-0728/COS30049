@@ -13,7 +13,7 @@ import {
   Alert,
 } from "react-native";
 
-const API_BASE = "http://10.0.2.2:5000";
+const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
@@ -201,3 +201,6 @@ const styles = StyleSheet.create({
 });
 
 export default LoginScreen;
+
+// Add a quick log to help confirm the endpoint in development
+console.log('Login endpoint:', `${API_BASE}/auth/login`);

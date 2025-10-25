@@ -17,7 +17,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 // Removed: PROVIDER_GOOGLE
 import MapView, { Marker, Circle, Heatmap } from 'react-native-maps';
-const API_BASE = 'http://192.168.0.114:3000';
+const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 import * as Location from 'expo-location';
 
 const MapScreen = () => {

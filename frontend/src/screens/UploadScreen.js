@@ -69,7 +69,7 @@ const UploadScreen = () => {
     return (typeof lat === 'number' && typeof lon === 'number') ? { lat, lon } : null;
   };
   // In production, prefer an https URL and load from config/env
-  const API_BASE = process.env.EXPO_PUBLIC_API_BASE || 'http://192.168.0.114:3000';
+  const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
   useEffect(() => {
     // Pre-load the model when screen mounts
@@ -442,7 +442,7 @@ const UploadScreen = () => {
         {isOffline && (
           <View style={styles.offlineBanner}>
             <Text style={styles.offlineText}>
-              📡 Offline Mode - Using on-device AI
+              📡 Offline Mode - AI disabled, using mock predictions
             </Text>
           </View>
         )}

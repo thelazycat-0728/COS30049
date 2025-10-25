@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Text, Image, ScrollView, ActivityIndicator } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
-const API_BASE = 'http://192.168.0.114:3000'; // align with Map/Admin screens
+const API_BASE = process.env.EXPO_PUBLIC_API_BASE; // align with Map/Admin screens
 
 const PlantDetailScreen = ({ route }) => {
   const { plant } = route.params || {};
