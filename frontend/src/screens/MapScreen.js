@@ -12,7 +12,6 @@ import {
   Image,
   ScrollView,
   Button,
-  Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 // Removed: PROVIDER_GOOGLE
@@ -200,34 +199,11 @@ const MapScreen = () => {
       return p.latitude >= b.minLat && p.latitude <= b.maxLat && p.longitude >= b.minLon && p.longitude <= b.maxLon;
     });
 
-    const isWeb = typeof document !== 'undefined';
-    if (!isWeb && Heatmap) {
-      if (!filtered.length) return null;
-      const points = filtered.map((p) => ({ latitude: p.latitude, longitude: p.longitude, weight: Math.max(1, p.observation_count) }));
-      return (
-        <Heatmap points={points} radius={radius} opacity={opacity} gradient={gradient} />
-      );
-    }
-    // Web fallback: use per-point circles
-    const min = 1; const max = Math.max(1, densityMax);
-    const pickColor = (count) => {
-      const idx = Math.min(heatGradient.colors.length - 1, Math.floor((count / max) * (heatGradient.colors.length - 1)));
-      return heatGradient.colors[idx] || '#0288d1';
-    };
-    return filtered.map((p, i) => {
-      const color = pickColor(p.observation_count);
-      const circleRadius = Math.max(60, (radius * 12) * (p.observation_count / max));
-      return (
-        <Circle
-          key={`hp-${i}-${p.latitude}-${p.longitude}`}
-          center={{ latitude: p.latitude, longitude: p.longitude }}
-          radius={circleRadius}
-          strokeColor={color}
-          fillColor={color + '55'}
-          zIndex={1}
-        />
-      );
-    });
+    if (!filtered.length || !Heatmap) return null;
+    const points = filtered.map((p) => ({ latitude: p.latitude, longitude: p.longitude, weight: Math.max(1, p.observation_count) }));
+    return (
+      <Heatmap points={points} radius={radius} opacity={opacity} gradient={gradient} />
+    );
   };
 
   const handleLocationPress = (loc) => {

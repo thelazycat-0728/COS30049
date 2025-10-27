@@ -10,12 +10,11 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
-import MapView, { Marker } from "react-native-maps";
+import MapView, { Marker } from 'react-native-maps';
 import { useNavigation } from "@react-navigation/native";
 import PlantClassifierService from "../services/PlantClassifierService";
 
@@ -92,22 +91,11 @@ const UploadScreen = () => {
       setGoogleMapsUrl(null);
 
       const formData = new FormData();
-      // Handle web platform by using File/Blob when available
-      if (asset?.file) {
-        // expo-document-picker on web can provide a File instance
-        formData.append('image', asset.file, asset.name || 'upload.jpg');
-      } else if (Platform.OS === 'web' && asset?.uri) {
-        const resp = await fetch(asset.uri);
-        const blob = await resp.blob();
-        const file = new File([blob], asset.name || 'upload.jpg', { type: blob.type || asset.mimeType || 'image/jpeg' });
-        formData.append('image', file);
-      } else {
-        formData.append('image', {
-          uri: asset.uri,
-          name: asset.name || 'upload.jpg',
-          type: asset.mimeType || 'image/jpeg',
-        });
-      }
+      formData.append('image', {
+        uri: asset.uri,
+        name: asset.name || 'upload.jpg',
+        type: asset.mimeType || 'image/jpeg',
+      });
 
       const res = await fetch(`${API_BASE}/identify/extract-location`, {
         method: 'POST',

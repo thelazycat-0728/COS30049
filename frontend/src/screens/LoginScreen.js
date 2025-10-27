@@ -12,6 +12,7 @@ import {
   StatusBar,
   Alert,
 } from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
@@ -50,6 +51,16 @@ const LoginScreen = ({ navigation }) => {
         }
 
         return;
+      }
+
+      // Persist token for AppNavigator role check
+      const tempToken = data?.tempToken;
+      if (tempToken) {
+        try {
+          await AsyncStorage.setItem('authToken', tempToken);
+        } catch (err) {
+          // Optionally handle persistence error
+        }
       }
 
       // Success: navigate to the main app
