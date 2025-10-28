@@ -361,38 +361,6 @@ const UploadScreen = () => {
     }
   };
 
-  const submitObservationToBackend = async () => {
-    try {
-      if (!backendImageUrl) {
-        Alert.alert('Missing image', 'No uploaded image URL found. Please classify an image first.');
-        return;
-      }     
-      setSaving(true);
-      const lat = extractedCoords?.lat ?? null;
-      const lon = extractedCoords?.lon ?? null;      
-      const res = await fetch(`${API_BASE}/identify/submit-observation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ image_url: backendImageUrl, lat, lon }),
-      });      
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        const msg = data?.error || `Submit failed (HTTP ${res.status})`;
-        Alert.alert('Submit error', msg);
-        return;
-      }      
-      Alert.alert('Success', 'Observation saved successfully');      
-      // Clear the backendImageUrl so it won't be deleted on unmount
-      setBackendImageUrl(null);
-      resetForm();      
-    } catch (err) {
-      console.error('submitObservationToBackend error:', err);
-      Alert.alert('Network error', 'Failed to submit observation. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   // const classifyPlantImage = async (imageUri) => {
   //   setIsClassifying(true);
   //   setPredictions([]);
