@@ -1,6 +1,8 @@
 const { ExifImage } = require('exif');
 const pool = require('../config/database');
 const StorageService = require('../services/storageService');
+const fs = require('fs');
+const path = require('path');
 
 // Convert GPS EXIF values to decimal
 function toDecimal(degree, minute, second, ref) {
@@ -231,6 +233,73 @@ class IdentifyController {
     } catch (error) {
       console.error('submitObservation error:', error);
       res.status(500).json({ error: 'Failed to save observation' });
+    }
+  }
+
+  //delete image
+  static async deleteImage(req, res) {
+    try {
+      const { image_url } = req.body;
+      
+      if (!image_url) {
+        return res.status(400).json({ 
+          success: false,
+          error: 'No image URL provided' 
+        });
+      }
+
+      console.log('Delete request for image:', image_url);
+      
+      //Extract filename from URL
+      const filename = image_url.split('/').pop();
+      
+      //Sanitize filename to prevent path traversal
+      if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        console.error(' Invalid filename detected:', filename);
+        return res.status(400).json({ 
+          success: false,
+          error: 'Invalid filename' 
+        });
+      }
+      
+      //Validate file extension
+      const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+      const fileExt = path.extname(filename).toLowerCase();
+      if (!allowedExtensions.includes(fileExt)) {
+        console.error('Invalid file type:', fileExt);
+        return res.status(400).json({ 
+          success: false,
+          error: 'Invalid file type' 
+        });
+      }
+      
+      //File is in backend/uploads
+      const filepath = path.join(__dirname, '..', '..', 'uploads', filename);
+      
+      console.log('Looking for file at:', filepath);
+      
+      //Check if file exists and delete it
+      if (fs.existsSync(filepath)) {
+        fs.unlinkSync(filepath);
+        console.log('Successfully deleted image:', filename);
+        return res.json({
+          success: true,
+          message: 'Image deleted successfully'
+        });
+      } else {
+        console.log('Image not found:', filename);
+        return res.status(404).json({
+          success: false,
+          message: 'Image not found'
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to delete image'
+      });
     }
   }
 }
