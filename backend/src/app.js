@@ -23,8 +23,8 @@ const app = express();
 app.use(helmet()); // Security headers
 app.use(cors()); // Enable CORS
 app.use(morgan('dev')); // Logging
-app.use(express.json()); // Parse JSON bodies
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));  // Parse JSON bodies
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/observations', plantsObservationRouter);
 app.use('/identify', identifyRouter);
 app.use('/iot', iotRouter);
