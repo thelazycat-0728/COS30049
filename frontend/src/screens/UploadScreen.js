@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -13,10 +13,10 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import MapView, { Marker } from 'react-native-maps';
 import { useNavigation } from "@react-navigation/native";
-import PlantClassifierService from "../services/PlantClassifierService";
+//import PlantClassifierService from "../services/PlantClassifierService";     (unused for now)
 
 import NetInfo from "@react-native-community/netinfo";
 
@@ -36,10 +36,13 @@ const UploadScreen = () => {
   const [extractedCoords, setExtractedCoords] = useState(null); // { lat, lon }
   const [mapRegion, setMapRegion] = useState(null);
   const [googleMapsUrl, setGoogleMapsUrl] = useState(null);
-  const [pendingUpload, setPendingUpload] = useState(null);
   const [backendImageUrl, setBackendImageUrl] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [imageSourceType, setImageSourceType] = useState(null); // 'camera' or 'file'
+  const [tempImageData, setTempImageData] = useState(null); // Store image data before upload
+  const backendImageUrlRef = useRef(null);
 
+  
   // Helper: extract decimal coords from EXIF data for immediate preview
   const extractCoordsFromExif = (exif) => {
     if (!exif) return null;
@@ -70,10 +73,10 @@ const UploadScreen = () => {
   // In production, prefer an https URL and load from config/env
   const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
-  useEffect(() => {
-    // Pre-load the model when screen mounts
-    PlantClassifierService.loadModel();
-  }, []);
+  // useEffect(() => {
+  //   // Pre-load the model when screen mounts
+  //   PlantClassifierService.loadModel();
+  // }, []);   (unused for now)
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
@@ -83,13 +86,34 @@ const UploadScreen = () => {
     return () => unsubscribe();
   }, []);
 
+  // Cleanup: Delete image when component unmounts if not submitted
+  useEffect(() => {
+    return () => {
+      if (backendImageUrl) {
+        deleteImageFromBackend(backendImageUrl);
+      }
+    };
+  }, []);
+
+  // Delete image from backend
+  const deleteImageFromBackend = async (imageUrl) => {
+    try {
+      await fetch(`${API_BASE}/identify/delete-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_url: imageUrl }),
+      });
+      console.log('Image deleted from backend:', imageUrl);
+    } catch (err) {
+      console.error('Failed to delete image:', err);
+    }
+  };
+
   // Upload a picked file to backend to extract EXIF GPS and store image
   const uploadFileToBackend = async (asset) => {
     try {
       setUploading(true);
-      setExtractedCoords(null);
-      setGoogleMapsUrl(null);
-
+      
       const formData = new FormData();
       formData.append('image', {
         uri: asset.uri,
@@ -114,7 +138,8 @@ const UploadScreen = () => {
       }
 
       const coords = data?.coordinates || null;
-      setBackendImageUrl(data?.image_url || null);
+      const uploadedUrl = data?.image_url || null;
+
       if (coords && typeof coords.lat === 'number' && typeof coords.lon === 'number') {
         setExtractedCoords(coords);
         setGoogleMapsUrl(data?.googleMapsUrl || null);
@@ -127,20 +152,20 @@ const UploadScreen = () => {
       } else {
         Alert.alert('No GPS data', 'No embedded GPS coordinates were found in this image.');
       }
+    return uploadedUrl;  
     } catch (err) {
       console.error('uploadFileToBackend error:', err);
       Alert.alert('Network error', 'Failed to process the image. Please try again.');
+      return null;
     } finally {
       setUploading(false);
     }
   };
-
+  
   // Upload a camera-captured image by reading base64 and posting JSON
   const uploadBase64ToBackend = async (imageUri) => {
     try {
       setUploading(true);
-      setExtractedCoords(null);
-      setGoogleMapsUrl(null);
 
       let base64;
       try {
@@ -168,15 +193,17 @@ const UploadScreen = () => {
         },
         body: JSON.stringify({ image: base64, filename }),
       });
+      
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         const msg = data?.error || `Upload failed (HTTP ${res.status})`;
         Alert.alert('Upload error', msg);
-        return;
+        return null;
       }
 
       const coords = data?.coordinates || null;
-      setBackendImageUrl(data?.image_url || null);
+      const uploadedUrl = data?.image_url || null;
+      
       if (coords && typeof coords.lat === 'number' && typeof coords.lon === 'number') {
         setExtractedCoords(coords);
         setGoogleMapsUrl(data?.googleMapsUrl || null);
@@ -189,9 +216,12 @@ const UploadScreen = () => {
       } else {
         Alert.alert('No GPS data', 'No embedded GPS coordinates were found in this image.');
       }
+      
+      return uploadedUrl;
     } catch (err) {
       console.error('uploadBase64ToBackend error:', err);
       Alert.alert('Network error', 'Failed to process the image. Please try again.');
+      return null;
     } finally {
       setUploading(false);
     }
@@ -200,9 +230,13 @@ const UploadScreen = () => {
   // Select image from device file library with EXIF for immediate location preview
   const pickFile = async () => {
     try {
-      setExtractedCoords(null);
-      setMapRegion(null);
-      setGoogleMapsUrl(null);
+      // Clear previous image if exists
+      if (backendImageUrl) {
+        await deleteImageFromBackend(backendImageUrl);
+        setBackendImageUrl(null);
+      }
+      
+      resetForm();
 
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/*'],
@@ -210,33 +244,27 @@ const UploadScreen = () => {
       });
       
       if (result.canceled) return;
+      
       const asset = Array.isArray(result.assets) ? result.assets[0] : result;
       if (!asset?.uri) {
         Alert.alert('Selection error', 'No file selected.');
         return;
       }
 
-      // Validate that the selected file is an image
       if (asset.mimeType && !asset.mimeType.startsWith('image/')) {
         Alert.alert('Invalid file', 'Please select an image file.');
         return;
       }
 
-      // For web, prefer preview using File object too
       const previewUri = asset.uri || (asset.file && URL.createObjectURL(asset.file)) || null;
       setImage(previewUri);
-      // Run on-device classification for continuity of existing capabilities
-      classifyPlantImage(previewUri);
-
-      // Immediately upload to backend to extract GPS and render map
-      await uploadFileToBackend({
+      setImageSourceType('file');
+      setTempImageData({
         uri: asset.uri || null,
         name: asset.name || 'upload.jpg',
         mimeType: asset.mimeType || asset.type || 'image/jpeg',
         file: asset.file || null,
       });
-      // Clear any pending state for file uploads (we auto-upload now)
-      setPendingUpload(null);
     } catch (err) {
       console.error('pickFile error:', err);
       Alert.alert('Permission or selection error', 'Unable to access files. Check permissions and try again.');
@@ -254,9 +282,13 @@ const UploadScreen = () => {
       return;
     }
 
-    setExtractedCoords(null);
-    setMapRegion(null);
-    setGoogleMapsUrl(null);
+    // Clear previous image if exists
+    if (backendImageUrl) {
+      await deleteImageFromBackend(backendImageUrl);
+      setBackendImageUrl(null);
+    }
+    
+    resetForm();
 
     let result = await ImagePicker.launchCameraAsync({
       allowsEditing: false,
@@ -268,16 +300,15 @@ const UploadScreen = () => {
       const asset = result.assets[0];
       const uri = asset.uri;
       setImage(uri);
-      // Continue showing predictions as before
-      classifyPlantImage(uri);
-      // Mark as pending (no backend call yet)
-      setPendingUpload({
-        sourceType: 'camera',
-        uri,
-        filename: asset.fileName || `camera-${Date.now()}.jpg`,
+      setImageSourceType('camera');
+      setTempImageData({
+        uri: uri,
+        exif: asset.exif,
+        fileName: asset.fileName || `camera-${Date.now()}.jpg`,
         mimeType: asset.type || 'image/jpeg',
       });
-
+      
+      // Show preview of coordinates if available
       const coords = extractCoordsFromExif(asset.exif || null);
       if (coords) {
         setExtractedCoords(coords);
@@ -292,47 +323,36 @@ const UploadScreen = () => {
     }
   };
 
-  const confirmUpload = async () => {
-    if (!pendingUpload) return;
-    try {
-      if (pendingUpload.sourceType === 'file') {
-        await uploadFileToBackend(
-          pendingUpload.asset || {
-            uri: pendingUpload.uri,
-            name: pendingUpload.filename,
-            type: pendingUpload.mimeType,
-          }
-        );
-      } else {
-        await uploadBase64ToBackend(pendingUpload.uri);
-      }
-      setPendingUpload(null);
-    } catch (err) {
-      console.warn('confirmUpload error:', err);
-    }
-  };
-
   const submitObservationToBackend = async () => {
     try {
       if (!backendImageUrl) {
-        Alert.alert('Missing image', 'No uploaded image URL found. Please process an image first.');
+        Alert.alert('Missing image', 'No uploaded image URL found. Please classify an image first.');
         return;
       }
+      
       setSaving(true);
       const lat = extractedCoords?.lat ?? null;
       const lon = extractedCoords?.lon ?? null;
+      
       const res = await fetch(`${API_BASE}/identify/submit-observation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ image_url: backendImageUrl, lat, lon }),
       });
+      
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         const msg = data?.error || `Submit failed (HTTP ${res.status})`;
         Alert.alert('Submit error', msg);
         return;
       }
+      
       Alert.alert('Success', 'Observation saved successfully');
+      
+      // Clear the backendImageUrl so it won't be deleted on unmount
+      setBackendImageUrl(null);
+      resetForm();
+      
     } catch (err) {
       console.error('submitObservationToBackend error:', err);
       Alert.alert('Network error', 'Failed to submit observation. Please try again.');
@@ -341,8 +361,138 @@ const UploadScreen = () => {
     }
   };
 
-  const cancelUpload = () => {
-    setPendingUpload(null);
+  const submitObservationToBackend = async () => {
+    try {
+      if (!backendImageUrl) {
+        Alert.alert('Missing image', 'No uploaded image URL found. Please classify an image first.');
+        return;
+      }     
+      setSaving(true);
+      const lat = extractedCoords?.lat ?? null;
+      const lon = extractedCoords?.lon ?? null;      
+      const res = await fetch(`${API_BASE}/identify/submit-observation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ image_url: backendImageUrl, lat, lon }),
+      });      
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.error || `Submit failed (HTTP ${res.status})`;
+        Alert.alert('Submit error', msg);
+        return;
+      }      
+      Alert.alert('Success', 'Observation saved successfully');      
+      // Clear the backendImageUrl so it won't be deleted on unmount
+      setBackendImageUrl(null);
+      resetForm();      
+    } catch (err) {
+      console.error('submitObservationToBackend error:', err);
+      Alert.alert('Network error', 'Failed to submit observation. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // const classifyPlantImage = async (imageUri) => {
+  //   setIsClassifying(true);
+  //   setPredictions([]);
+
+  //   try {
+  //     console.log("Classifying image:", imageUri);
+  //     const results = await PlantClassifierService.classifyImage(imageUri);
+  //     setPredictions(results);
+
+  //     // Auto-fill form with top prediction
+  //     if (results.length > 0) {
+  //       const topPrediction = results[0];
+  //       setPlantName(topPrediction.species);
+  //       setConfidenceScore(topPrediction.confidence);
+
+  //       // Optionally set scientific name if available
+  //       // setScientificName(topPrediction.scientificName);
+  //     }
+  //   } catch (error) {
+  //     Alert.alert(
+  //       "Classification Error",
+  //       "Failed to identify plant. Please try again."
+  //     );
+  //     console.error("Classification error:", error);
+  //   } finally {
+  //     setIsClassifying(false);
+  //   }
+  // };           (unused for now)
+
+  //Classify Plant From Backend Server
+  const classifyPlantViaBackend = async () => {
+    if (!tempImageData) {
+      Alert.alert('No image selected', 'Please select an image first.');
+      return;
+    }
+
+    try {
+      // Delete old image if exists
+      if (backendImageUrl) {
+        await deleteImageFromBackend(backendImageUrl);
+      }
+
+      let uploadedUrl = null;
+
+      // Upload based on source type
+      if (imageSourceType === 'file') {
+        uploadedUrl = await uploadFileToBackend(tempImageData);
+      } else if (imageSourceType === 'camera') {
+        uploadedUrl = await uploadBase64ToBackend(tempImageData.uri);
+      }
+
+      if (!uploadedUrl) {
+        Alert.alert('Upload failed', 'Failed to upload image to server.');
+        return;
+      }
+
+      setBackendImageUrl(uploadedUrl);
+
+      // Now classify the uploaded image
+      setIsClassifying(true);
+      setPredictions([]);
+
+      const response = await fetch(`${API_BASE}/identify/classify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_path: uploadedUrl }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success && data.predictions) {
+        console.log("✅ Classification result:", data);
+        setPredictions(data.predictions);
+        
+        if (data.predictions.length > 0) {
+          const top = data.predictions[0];
+          setPlantName(top.species || top.className);
+          setConfidenceScore(top.confidence || top.probability);
+        }
+      } else {
+        Alert.alert('Classification failed', data.error || 'Unknown error');
+      }
+    } catch (err) {
+      console.error("Classification error:", err);
+      Alert.alert('Error', 'Failed to classify plant.');
+    } finally {
+      setIsClassifying(false);
+    }
+  };
+
+  // Cancel and delete uploaded image
+  const cancelAndReset = async () => {
+    if (backendImageUrl) {
+      await deleteImageFromBackend(backendImageUrl);
+    }
+    resetForm();
+  };
+
+
+  const resetForm = () => {
     setImage(null);
     setPredictions([]);
     setConfidenceScore(0);
@@ -352,74 +502,8 @@ const UploadScreen = () => {
     setExtractedCoords(null);
     setMapRegion(null);
     setGoogleMapsUrl(null);
-  };
-
-  const classifyPlantImage = async (imageUri) => {
-    setIsClassifying(true);
-    setPredictions([]);
-
-    try {
-      console.log("Classifying image:", imageUri);
-      const results = await PlantClassifierService.classifyImage(imageUri);
-      setPredictions(results);
-
-      // Auto-fill form with top prediction
-      if (results.length > 0) {
-        const topPrediction = results[0];
-        setPlantName(topPrediction.species);
-        setConfidenceScore(topPrediction.confidence);
-
-        // Optionally set scientific name if available
-        // setScientificName(topPrediction.scientificName);
-      }
-    } catch (error) {
-      Alert.alert(
-        "Classification Error",
-        "Failed to identify plant. Please try again."
-      );
-      console.error("Classification error:", error);
-    } finally {
-      setIsClassifying(false);
-    }
-  };
-
-  const handleSubmit = () => {
-    if (!image || !plantName) {
-      Alert.alert(
-        "Missing Information",
-        "Please provide at least an image and plant name"
-      );
-      return;
-    }
-
-    // Here you would call your API to upload data
-    const plantData = {
-      id: Date.now().toString(),
-      name: plantName,
-      scientificName,
-      description,
-      location,
-      image,
-      confidenceScore,
-      discoveredBy: "Current User",
-      discoveryDate: new Date().toISOString().split("T")[0],
-      predictions: predictions,
-    };
-
-    console.log("Uploading plant data:", plantData);
-    Alert.alert("Success", "Plant observation uploaded successfully!");
-
-    // Reset form
-    setImage(null);
-    setPlantName("");
-    setScientificName("");
-    setDescription("");
-    setLocation("");
-    setPredictions([]);
-    setConfidenceScore(0);
-
-    // Navigate to map
-    navigation.navigate("Map");
+    setImageSourceType(null);
+    setTempImageData(null);
   };
 
   return (
@@ -434,11 +518,11 @@ const UploadScreen = () => {
             </Text>
           </View>
         )}
-        {PlantClassifierService.isOfflineCapable() && (
-          <View style={styles.offlineCapableBanner}>
-            <Text style={styles.offlineCapableText}>✅ Offline AI Ready</Text>
-          </View>
-        )}
+        // {PlantClassifierService.isOfflineCapable() && (
+        //   <View style={styles.offlineCapableBanner}>
+        //     <Text style={styles.offlineCapableText}>✅ Offline AI Ready</Text>
+        //   </View>           (unused for now)
+        // )}
         {uploading && (
           <View style={styles.uploadingContainer}>
             <ActivityIndicator size="large" color="#4CAF50" />
@@ -466,6 +550,17 @@ const UploadScreen = () => {
             <Text style={styles.buttonText}>Take Photo</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Classify Plant button */}
+        {image && !isClassifying && !backendImageUrl && (
+          <TouchableOpacity 
+            style={[styles.button, styles.classifyButton]} 
+            onPress={classifyPlantViaBackend}
+            disabled={isOffline}
+          >
+            <Text style={styles.buttonText}>Classify Plant</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Classification Loading */}
         {isClassifying && (
@@ -514,6 +609,8 @@ const UploadScreen = () => {
             </Text>
           </View>
         )}
+
+        {/* Location Card */}
         {extractedCoords && (
           <View style={styles.locationCard}>
             <Text style={styles.locationTitle}>Extracted Location</Text>
@@ -537,36 +634,29 @@ const UploadScreen = () => {
             </View>
           </View>
         )}
-        {image && pendingUpload && (
-           <View style={styles.pendingCard}>
-             <View style={styles.pendingButtons}>
-              <TouchableOpacity
-                 style={[styles.button, styles.cancelButtonSmall]}
-                 onPress={cancelUpload}
-                 disabled={uploading}
-               >
-                 <Text style={styles.buttonText}>Cancel</Text>
-               </TouchableOpacity>
-               <TouchableOpacity
-                 style={[styles.button, styles.submitButtonSmall]}
-                 onPress={confirmUpload}
-                 disabled={uploading}
-               >
-                 <Text style={styles.buttonText}>{uploading ? 'Submitting...' : 'Process Image'}</Text>
-               </TouchableOpacity>
-             </View>
-           </View>
-         )}
-         {backendImageUrl && (
-           <TouchableOpacity
-             style={[styles.button, styles.submitButton]}
-             onPress={submitObservationToBackend}
-             disabled={saving}
-           >
-             <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Submit Observation'}</Text>
-           </TouchableOpacity>
-         )}
-        </View>
+        {/* Action Buttons */}
+        {backendImageUrl && (
+          <View style={styles.actionButtons}>
+            <TouchableOpacity
+              style={[styles.button, styles.cancelButton]}
+              onPress={cancelAndReset}
+              disabled={saving}
+            >
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.button, styles.submitButton]}
+              onPress={submitObservationToBackend}
+              disabled={saving}
+            >
+              <Text style={styles.buttonText}>
+                {saving ? 'Saving...' : 'Submit Observation'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
       {/* Form */}
       {/* Simplified layout: form removed to focus on two primary actions */}
@@ -799,20 +889,29 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 220,
   },
-  pendingCard: {
-    width: "100%",
-    marginTop: 10,
-  },
-  pendingButtons: {
+  actionButtons: {
     flexDirection: "row",
     justifyContent: "space-around",
+    width: "100%",
+    marginTop: 20,
   },
-  submitButtonSmall: {
+  submitButton: {
     backgroundColor: "#4CAF50",
+    flex: 1,
+    marginLeft: 10,
+    alignItems: "center",
   },
-  cancelButtonSmall: {
-    backgroundColor: "#4CAF50",
+  cancelButton: {
+    backgroundColor: "#f44336",
+    flex: 1,
+    marginRight: 10,
+    alignItems: "center",
   },
+  classifyButton: {
+  width: "90%",
+  alignItems: "center",
+  marginTop: 10,
+},
 });
 
 export default UploadScreen;
