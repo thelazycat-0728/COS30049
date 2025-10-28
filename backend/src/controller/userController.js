@@ -2,15 +2,28 @@ const User = require("../models/User");
 
 class UserController {
   static async updateUserRole(req, res) {
-    const { userId, newRole } = req.body;
-
     try {
-      await User.updateRole(userId, newRole);
-      res
+      const userId = req.params.id || req.body.userId;
+      const { newRole } = req.body;
+
+      const allowedRoles = ["public", "expert", "admin"];
+      if (!userId || !newRole || !allowedRoles.includes(newRole)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid userId or role",
+        });
+      }
+
+      const ok = await User.updateRole(userId, newRole);
+      if (!ok) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      return res
         .status(200)
         .json({ success: true, message: "User role updated successfully" });
     } catch (error) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: "Error updating user role",
         error: error.message,

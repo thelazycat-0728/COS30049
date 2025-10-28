@@ -147,6 +147,21 @@ class IoTAlert {
   }
 
   /**
+   * Unresolve an alert
+   */
+  static async unresolve(alertId) {
+    const query = `
+      UPDATE Alerts
+      SET 
+        resolved = FALSE
+      WHERE alert_id = ?
+    `;
+
+    await pool.query(query, alertId);
+    return await this.findByAlertId(alertId);
+  }
+
+  /**
    * Delete old resolved alerts
    */
   static async deleteOldResolved(days = 30) {

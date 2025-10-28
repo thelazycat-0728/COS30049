@@ -36,21 +36,21 @@ class User {
 
   // READ (all with pagination)
   static async findAll(limit = 10, offset = 0) {
-    const query = 'SELECT id, username, email, role, created_at FROM Users LIMIT ? OFFSET ?';
+    const query = 'SELECT user_id, username, email, role, created_at FROM Users LIMIT ? OFFSET ?';
     const [rows] = await pool.query(query, [limit, offset]);
     return rows;
   }
 
   // UPDATE
   static async updateRole(id, role) {
-    const query = 'UPDATE Users SET role = ?, updated_at = NOW() WHERE id = ?';
+    const query = 'UPDATE Users SET role = ?, updated_at = NOW() WHERE user_id = ?';
     const [result] = await pool.query(query, [role, id]);
     return result.affectedRows > 0;
   }
 
   // DELETE (soft delete preferred)
   static async delete(id) {
-    const query = 'DELETE FROM Users WHERE id = ?';
+    const query = 'DELETE FROM Users WHERE user_id = ?';
     const [result] = await pool.query(query, [id]);
     return result.affectedRows > 0;
   }

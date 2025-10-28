@@ -89,6 +89,12 @@ iotRouter.post('/alerts/:id/resolve',
   IotAlertController.resolveAlert
 );
 
+// Unresolve an alert
+iotRouter.post('/alerts/:id/unresolve', 
+  requireAdmin,
+  IotAlertController.unresolveAlert
+);
+
 
 
 module.exports = iotRouter;

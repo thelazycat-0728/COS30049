@@ -61,7 +61,8 @@ class Sensor {
         s.status as status,
         s.last_checked as lastChecked,
         s.created_at as createdAt,
-        s.updated_at as updatedAt
+        s.updated_at as updatedAt,
+        s.observation_id as observation_id
       FROM IoTSensors s
       ORDER BY s.created_at DESC
       LIMIT ? OFFSET ?

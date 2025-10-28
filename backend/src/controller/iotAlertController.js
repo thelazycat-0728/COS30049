@@ -108,7 +108,48 @@ class IoTAlertController {
     }
   }
 
-  
+  /**
+   * Unresolve an alert
+   * @route POST /api/iot/alerts/:id/unresolve
+   */
+  async unresolveAlert(req, res) {
+    try {
+      const alertId = String(req.params.id);
+
+      const alert = await IoTAlert.findByAlertId(alertId);
+      if (!alert) {
+        return res.status(404).json({
+          success: false,
+          error: 'Alert not found'
+        });
+      }
+
+      // Check if already unresolved
+      if (!alert.resolved) {
+        return res.status(400).json({
+          success: false,
+          error: 'Alert already unresolved'
+        });
+      }
+
+      const updatedAlert = await IoTAlert.unresolve(alertId);
+
+      console.log(`✅ Alert unresolved: ${alertId}`);
+
+      return res.json({
+        success: true,
+        message: 'Alert marked as unresolved successfully',
+        alert: updatedAlert
+      });
+
+    } catch (error) {
+      console.error('❌ Unresolve alert error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to unresolve alert'
+      });
+    }
+  }
 }
 
 module.exports = new IoTAlertController();

@@ -1,7 +1,7 @@
 // src/screens/AdminScreen.js
 import { Ionicons } from '@expo/vector-icons';
 import { Alert, ActivityIndicator } from 'react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Modal,
   SafeAreaView,
@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapView, { Marker } from 'react-native-maps';
+import Svg, { Polyline, Line, Circle, Path, Text as SvgText } from 'react-native-svg';
 const API_URL = process.env.EXPO_PUBLIC_API_BASE;
 
 
@@ -30,10 +31,13 @@ const AdminScreen = () => {
   const [plotModalVisible, setPlotModalVisible] = useState(false);
   const [selectedModelPlot, setSelectedModelPlot] = useState(null);
   const [plotLoading, setPlotLoading] = useState(false);
+  const [chartWidth, setChartWidth] = useState(0);
 
   // Mock data based on your screenshots
   const [plants, setPlants] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsError, setAlertsError] = useState(null);
   const [models, setModels] = useState([]);
 
   // Training state (added)
@@ -51,9 +55,114 @@ const AdminScreen = () => {
   const [statusSaving, setStatusSaving] = useState(false);
   const [pubSaving, setPubSaving] = useState(false);
 
+  // Alert detail modal state
+  const [alertDetailVisible, setAlertDetailVisible] = useState(false);
+  const [alertDetail, setAlertDetail] = useState(null);
+  const [alertResolving, setAlertResolving] = useState(false);
+
+  // Alerts filter & sort state
+  const [alertsFilterModalVisible, setAlertsFilterModalVisible] = useState(false);
+  const [alertsFilterSeverity, setAlertsFilterSeverity] = useState(null); // null = all severities
+  const [alertsFilterType, setAlertsFilterType] = useState(null); // null = all types
+  const [alertsSortKey, setAlertsSortKey] = useState('timestamp'); // 'timestamp' | 'severity' | 'score'
+  const [alertsSortOrder, setAlertsSortOrder] = useState('desc'); // 'asc' | 'desc'
+
+  // Temp selections used inside alerts modal
+  const [alertsFilterTempSeverity, setAlertsFilterTempSeverity] = useState(null);
+  const [alertsFilterTempType, setAlertsFilterTempType] = useState(null);
+  const [alertsSortTempKey, setAlertsSortTempKey] = useState('timestamp');
+  const [alertsSortTempOrder, setAlertsSortTempOrder] = useState('desc');
+
+  const alertTypes = useMemo(() => {
+    try {
+      return Array.from(new Set((alerts || []).map(a => a.type))).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }, [alerts]);
+
+  const openAlertsFilterModal = () => {
+    setAlertsFilterTempSeverity(alertsFilterSeverity);
+    setAlertsFilterTempType(alertsFilterType);
+    setAlertsSortTempKey(alertsSortKey);
+    setAlertsSortTempOrder(alertsSortOrder);
+    setAlertsFilterModalVisible(true);
+  };
+
+  const applyAlertsFilterSort = () => {
+    setAlertsFilterSeverity(alertsFilterTempSeverity ?? null);
+    setAlertsFilterType(alertsFilterTempType ?? null);
+    setAlertsSortKey(alertsSortTempKey || 'timestamp');
+    setAlertsSortOrder(alertsSortTempOrder || 'desc');
+    setAlertsFilterModalVisible(false);
+    if (activeSection === 'alerts') {
+      resetAlerts();
+      fetchAlerts({ reset: true });
+    }
+  };
+
+  const clearAlertsFilters = () => {
+    setAlertsFilterTempSeverity(null);
+    setAlertsFilterTempType(null);
+    setAlertsSortTempKey('timestamp');
+    setAlertsSortTempOrder('desc');
+    setAlertsFilterSeverity(null);
+    setAlertsFilterType(null);
+    setAlertsSortKey('timestamp');
+    setAlertsSortOrder('desc');
+    if (activeSection === 'alerts') {
+      resetAlerts();
+      fetchAlerts({ reset: true });
+    }
+  };
+
+  const alertsDisplay = useMemo(() => {
+    let arr = [...(alerts || [])];
+
+    // Filter
+    if (alertsFilterSeverity) {
+      arr = arr.filter(a => (a.severity || '').toLowerCase() === alertsFilterSeverity);
+    }
+    if (alertsFilterType) {
+      arr = arr.filter(a => (a.type || '') === alertsFilterType);
+    }
+
+    // Sort
+    const sevRank = { low: 0, medium: 1, high: 2, critical: 3 };
+    arr.sort((a, b) => {
+      let av, bv;
+      switch (alertsSortKey) {
+        case 'severity':
+          av = sevRank[(a.severity || '').toLowerCase()] ?? -1;
+          bv = sevRank[(b.severity || '').toLowerCase()] ?? -1;
+          break;
+        case 'score':
+          av = Number(a.score ?? 0);
+          bv = Number(b.score ?? 0);
+          break;
+        case 'timestamp':
+        default:
+          av = new Date(a.timestamp || 0).getTime();
+          bv = new Date(b.timestamp || 0).getTime();
+      }
+      if (av < bv) return alertsSortOrder === 'asc' ? -1 : 1;
+      if (av > bv) return alertsSortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return arr;
+  }, [alerts, alertsFilterSeverity, alertsFilterType, alertsSortKey, alertsSortOrder]);
+
+  // Users state
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState(null);
+  const [usersLimit] = useState(20);
+  const [usersOffset, setUsersOffset] = useState(0);
+  const [usersTotal, setUsersTotal] = useState(0);
+
 
   useEffect(() => {
-    loadMockData();
     (async () => {
       const token = await getAuthToken();
       if (!token) {
@@ -84,31 +193,248 @@ const AdminScreen = () => {
     return await AsyncStorage.getItem('authToken');
   };
 
+  // Users management helpers
+  const USER_ROLES = ['public', 'expert', 'admin'];
 
-  const loadMockData = () => {
-    // Alerts data from second screenshot
-    setAlerts([
-      {
-        id: '1',
-        type: 'Temperature Alert',
-        sensor: 'TEMP001',
-        observation: 'Observation #1',
-        message: 'Temperature reading outside normal range for this plant species',
-        score: 0.73,
-        timestamp: '1/15/2024 04:05 PM',
-        severity: 'high'
-      },
-      {
-        id: '2',
-        type: 'Soil Moisture Alert',
-        sensor: 'TEMP002',
-        observation: 'Observation #2',
-        message: 'Soil moisture levels critically low for plant health',
-        score: 0.89,
-        timestamp: '1/10/2024 01:20 PM',
-        severity: 'critical'
+  const resetUsers = () => {
+    setUsers([]);
+    setUsersOffset(0);
+    setUsersTotal(0);
+    setUsersError(null);
+  };
+
+  const fetchUsers = async ({ reset = false } = {}) => {
+    if (usersLoading) return;
+    try {
+      setUsersLoading(true);
+      const token = await getAuthToken();
+      const offsetToFetch = reset ? 0 : usersOffset;
+      const params = new URLSearchParams({
+        limit: String(usersLimit),
+        offset: String(offsetToFetch),
+      });
+      const res = await fetch(`${API_URL}/admin/users?${params.toString()}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || `HTTP ${res.status}`);
+      const list = Array.isArray(json.data) ? json.data : [];
+      const mapped = list.map(u => ({
+        user_id: u.user_id ?? u.id ?? u.userId,
+        username: u.username,
+        email: u.email,
+        role: u.role,
+        created_at: u.created_at,
+      }));
+      if (reset) {
+        setUsers(mapped);
+      } else {
+        setUsers(prev => [...prev, ...mapped]);
       }
-    ]);
+      const total = json.pagination?.total ?? (json.total ?? (reset ? mapped.length : usersTotal));
+      setUsersTotal(total);
+      const usedOffset = json.pagination?.offset ?? offsetToFetch;
+      const countFetched = mapped.length;
+      setUsersOffset(usedOffset + countFetched);
+      setUsersError(null);
+    } catch (err) {
+      console.error('Users fetch error:', err);
+      setUsersError(err.message || 'Failed to load users');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleUpdateUserRole = async (user, newRole) => {
+    try {
+      if (!USER_ROLES.includes(newRole)) {
+        Alert.alert('Invalid role', 'Role must be one of: public, expert, admin');
+        return;
+      }
+      const token = await getAuthToken();
+      const res = await fetch(`${API_URL}/admin/users/${user.user_id}/role`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ userId: user.user_id, newRole }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Failed to update role`);
+      setUsers(prev => prev.map(u => u.user_id === user.user_id ? { ...u, role: newRole } : u));
+      Alert.alert('Success', `Updated ${user.username}'s role to ${newRole}`);
+    } catch (err) {
+      console.error('Update user role error:', err);
+      Alert.alert('Error', err.message || 'Failed to update user role');
+    }
+  };
+
+  const [createUserModalVisible, setCreateUserModalVisible] = useState(false);
+  const [createUserSaving, setCreateUserSaving] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState({ username: '', email: '', password: '', role: 'public' });
+
+  // Users filter & sort state
+  const [usersFilterModalVisible, setUsersFilterModalVisible] = useState(false);
+  const [usersFilterRole, setUsersFilterRole] = useState(null); // null = all roles
+  const [usersSortKey, setUsersSortKey] = useState('name'); // 'name' | 'email'
+  const [usersSortOrder, setUsersSortOrder] = useState('asc'); // 'asc' | 'desc'
+
+  // Temp selections used inside modal
+  const [usersFilterTempRole, setUsersFilterTempRole] = useState(null);
+  const [usersSortTempKey, setUsersSortTempKey] = useState('name');
+  const [usersSortTempOrder, setUsersSortTempOrder] = useState('asc');
+
+  const openUsersFilterModal = () => {
+    setUsersFilterTempRole(usersFilterRole);
+    setUsersSortTempKey(usersSortKey);
+    setUsersSortTempOrder(usersSortOrder);
+    setUsersFilterModalVisible(true);
+  };
+
+  const applyUsersFilterSort = () => {
+    setUsersFilterRole(usersFilterTempRole ?? null);
+    setUsersSortKey(usersSortTempKey || 'name');
+    setUsersSortOrder(usersSortTempOrder || 'asc');
+    setUsersFilterModalVisible(false);
+  };
+
+  const clearUsersFilters = () => {
+    setUsersFilterTempRole(null);
+    setUsersSortTempKey('name');
+    setUsersSortTempOrder('asc');
+    setUsersFilterRole(null);
+    setUsersSortKey('name');
+    setUsersSortOrder('asc');
+  };
+
+  const usersDisplay = useMemo(() => {
+    let arr = [...users];
+    if (usersFilterRole) {
+      arr = arr.filter(u => (u.role || 'public') === usersFilterRole);
+    }
+    const getVal = (u) => {
+      if (usersSortKey === 'email') return (u.email || '').toLowerCase();
+      return (u.username || u.name || u.email || '').toLowerCase();
+    };
+    arr.sort((a, b) => {
+      const av = getVal(a);
+      const bv = getVal(b);
+      if (av < bv) return usersSortOrder === 'asc' ? -1 : 1;
+      if (av > bv) return usersSortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [users, usersFilterRole, usersSortKey, usersSortOrder]);
+
+  const openCreateUser = () => {
+    setCreateUserForm({ username: '', email: '', password: '', role: 'public' });
+    setCreateUserModalVisible(true);
+  };
+
+  const handleSaveCreateUser = async () => {
+    try {
+      const name = createUserForm.username.trim();
+      const email = createUserForm.email.trim();
+      const pwd = createUserForm.password;
+      if (!name || !email || !pwd) {
+        Alert.alert('Missing fields', 'Please fill in username, email and password');
+        return;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        Alert.alert('Invalid email', 'Please enter a valid email address');
+        return;
+      }
+      setCreateUserSaving(true);
+      const token = await getAuthToken();
+      const res = await fetch(`${API_URL}/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ username: name, email, password: pwd }),
+      });
+      const data = await res.json();
+      // Treat any 2xx status as success; backend returns 201 without a `success` flag
+      if (!res.ok) {
+        throw new Error(data?.error || `Register failed (${res.status})`);
+      }
+      const created = data?.user || data?.data;
+      const newUserId = created?.id ?? created?.user_id ?? created?.userId;
+      const desiredRole = createUserForm.role || 'public';
+      const currentRole = created?.role ?? 'public';
+      if (newUserId && desiredRole !== currentRole) {
+        const res2 = await fetch(`${API_URL}/admin/users/${newUserId}/role`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ userId: newUserId, newRole: desiredRole }),
+        });
+        const data2 = await res2.json();
+        if (!res2.ok || !data2?.success) {
+          throw new Error(data2?.error || 'Failed to set role');
+        }
+      }
+      setCreateUserModalVisible(false);
+      setCreateUserForm({ username: '', email: '', password: '', role: 'public' });
+      fetchUsers({ reset: true });
+      Alert.alert('Success', 'User created successfully');
+    } catch (err) {
+      console.error('Create user error:', err);
+      Alert.alert('Error', err.message || 'Failed to create user');
+    } finally {
+      setCreateUserSaving(false);
+    }
+  };
+
+
+  // Deprecated: mock data loader removed in favor of real backend fetching
+const loadMockData = () => { /* no-op */ };
+
+  // ===================================================================================================
+  // Alerts - fetch
+  // ===================================================================================================
+  const fetchAlerts = async ({ reset = false } = {}) => {
+    if (alertsLoading) return;
+    try {
+      setAlertsLoading(true);
+      setAlertsError(null);
+      const token = await getAuthToken();
+      const params = new URLSearchParams({ limit: '100' });
+      const res = await fetch(`${API_URL}/iot/alerts?${params.toString()}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
+      const list = Array.isArray(data.alerts) ? data.alerts : [];
+      const mapped = list.map(a => ({
+        id: a.alertId || a.alert_id || String(a.id || ''),
+        type: a.alertType || 'Alert',
+        severity: String(a.severity || 'low').toLowerCase(),
+        sensor: a.sensorName || (a.sensorId ? `Sensor ${a.sensorId}` : 'Unknown sensor'),
+        observation: a.sensorLocation || '',
+        message: a.description || a.message || '',
+        score: typeof a.score === 'number' ? a.score : (a.score ? Number(a.score) : 0),
+        timestamp: a.createdAt || a.created_at || '',
+        resolved: typeof a.resolved === 'boolean' ? (a.resolved ? 1 : 0) : (a.resolved != null ? Number(a.resolved) : 0),
+      }));
+      setAlerts(mapped);
+    } catch (err) {
+      console.error('Alerts fetch error:', err);
+      setAlertsError(err.message || 'Failed to load alerts');
+    } finally {
+      setAlertsLoading(false);
+    }
   };
 
   // ===================================================================================================
@@ -513,10 +839,19 @@ const AdminScreen = () => {
     setObsError(null);
   };
 
+  const resetAlerts = () => {
+    setAlerts([]);
+    setAlertsError(null);
+  };
+
   useEffect(() => {
-    if (activeSection === 'observations') {
-      resetObservations();
-      fetchObservations({ reset: true });
+    if (activeSection === 'users') {
+      resetUsers();
+      fetchUsers({ reset: true });
+    }
+    if (activeSection === 'alerts') {
+      resetAlerts();
+      fetchAlerts({ reset: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection]);
@@ -727,20 +1062,52 @@ const AdminScreen = () => {
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>System Alerts</Text>
         <View style={styles.filterRow}>
-          <View style={styles.filterButton}>
-            <Text style={styles.filterText}>All Alerts</Text>
-            <Ionicons name="chevron-down" size={16} color="#666" />
-          </View>
-          <View style={styles.filterButton}>
-            <Text style={styles.filterText}>All Severity</Text>
-            <Ionicons name="chevron-down" size={16} color="#666" />
-          </View>
+          {alertsFilterSeverity && (
+            <View style={styles.filterChip}>
+              <Text style={styles.filterChipText}>Severity: {alertsFilterSeverity}</Text>
+              <TouchableOpacity onPress={() => setAlertsFilterSeverity(null)}>
+                <Ionicons name="close-circle" size={18} color="#666" />
+              </TouchableOpacity>
+            </View>
+          )}
+          {alertsFilterType && (
+            <View style={styles.filterChip}>
+              <Text style={styles.filterChipText}>Type: {alertsFilterType}</Text>
+              <TouchableOpacity onPress={() => setAlertsFilterType(null)}>
+                <Ionicons name="close-circle" size={18} color="#666" />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={{ flex: 1 }} />
+
+          <TouchableOpacity style={styles.filterButton} onPress={openAlertsFilterModal}>
+            <Ionicons name="options-outline" size={16} color="#666" />
+            <Text style={styles.filterText}>Filter & Sort</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
+      {alertsError && (
+        <View style={styles.plotError}>
+          <Ionicons name="alert-circle" size={32} color="#F44336" />
+          <Text style={styles.plotErrorText}>{String(alertsError)}</Text>
+          <TouchableOpacity style={[styles.viewDetailsButton]} onPress={() => fetchAlerts({ reset: true })}>
+            <Text style={styles.viewDetailsText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {alertsLoading && alerts.length === 0 ? (
+        <View style={styles.plotLoading}>
+          <ActivityIndicator size="small" color="#2e7d32" />
+          <Text style={styles.plotLoadingText}>Loading alerts...</Text>
+        </View>
+      ) : null}
+
       <ScrollView style={styles.contentScroll}>
-        {alerts.map(alert => (
-          <View key={alert.id} style={styles.alertCard}>
+        {alertsDisplay.map(alert => (
+          <TouchableOpacity key={alert.id} style={styles.alertCard} activeOpacity={0.85} onPress={() => { setAlertDetail(alert); setAlertDetailVisible(true); }}>
             <View style={styles.alertHeader}>
               <Text style={styles.alertTitle}>{alert.type}</Text>
               <View style={[
@@ -748,7 +1115,7 @@ const AdminScreen = () => {
                 { backgroundColor: getSeverityColor(alert.severity) }
               ]}>
                 <Text style={styles.severityText}>
-                  {alert.severity.charAt(0).toUpperCase() + alert.severity.slice(1)}
+                  {String(alert.severity || '').charAt(0).toUpperCase() + String(alert.severity || '').slice(1)}
                 </Text>
               </View>
             </View>
@@ -763,11 +1130,11 @@ const AdminScreen = () => {
               <Text style={styles.alertScore}>Score: {alert.score}</Text>
               <Text style={styles.alertTimestamp}>{alert.timestamp}</Text>
             </View>
-          </View>
+          </TouchableOpacity>
         ))}
         
         {/* Empty state */}
-        {alerts.length === 0 && (
+        {alertsDisplay.length === 0 && !alertsLoading && !alertsError && (
           <View style={styles.emptyState}>
             <Ionicons name="checkmark-circle-outline" size={48} color="#ccc" />
             <Text style={styles.emptyStateText}>No active alerts</Text>
@@ -914,25 +1281,504 @@ const AdminScreen = () => {
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Users Management</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+          <TouchableOpacity 
+            style={styles.filterButton}
+            onPress={openUsersFilterModal}
+          >
+            <Ionicons name="options-outline" size={16} color="#666" />
+            <Text style={styles.filterText}>Filter & Sort</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.addButton}
+            onPress={openCreateUser}
+          >
+            <Ionicons name="add" size={20} color="white" />
+            <Text style={styles.addButtonText}>Create User</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-      <View style={styles.emptyState}>
-        <Ionicons name="people-outline" size={48} color="#ccc" />
-        <Text style={styles.emptyStateText}>Users Section</Text>
-        <Text style={styles.emptyStateSubtext}>User management will appear here</Text>
-      </View>
+
+      {usersError ? (
+        <View style={styles.placeholderBox}>
+          <Ionicons name="alert-circle-outline" size={32} color="#F44336" />
+          <Text style={{ marginTop: 8, color: '#F44336' }}>{usersError}</Text>
+          <TouchableOpacity
+            style={[styles.addButton, { marginTop: 12 }]}
+            onPress={() => fetchUsers({ reset: true })}
+          >
+            <Ionicons name="refresh" size={16} color="white" />
+            <Text style={styles.addButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={usersDisplay}
+          keyExtractor={(item) => String(item.user_id ?? item.id ?? item.email ?? Math.random())}
+          renderItem={({ item }) => (
+            <View style={styles.plantCard}>
+              <View style={styles.plantHeader}>
+                <Text style={styles.plantName}>
+                  {item.username || item.name || item.email || `User #${item.user_id ?? item.id}`}
+                </Text>
+              </View>
+              <View style={{ marginTop: 6 }}>
+                <Text style={styles.plantDescription}>Email: {item.email || '-'}</Text>
+                <Text style={styles.plantDescription}>Role: {item.role || 'public'}</Text>
+              </View>
+
+              <View style={[styles.filterRow, { marginTop: 8 }]}>
+                {USER_ROLES.map((role) => {
+                  const active = (item.role || 'public') === role;
+                  return (
+                    <TouchableOpacity
+                      key={role}
+                      style={[styles.chip, active && styles.chipActive]}
+                      onPress={() => handleUpdateUserRole(item, role)}
+                      disabled={usersLoading}
+                    >
+                      <Ionicons
+                        name={active ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={16}
+                        color={active ? '#2e7d32' : '#666'}
+                      />
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{role}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+          contentContainerStyle={{ paddingBottom: 24 }}
+          ListEmptyComponent={
+            usersLoading ? (
+              <View style={styles.placeholderBox}>
+                <ActivityIndicator size="large" color="#2e7d32" />
+                <Text style={{ marginTop: 12, color: '#666' }}>Loading users...</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyStateText}>No users found</Text>
+                <Text style={styles.emptyStateSubtext}>Pull to refresh to reload users</Text>
+              </View>
+            )
+          }
+          onEndReached={() => {
+            if (!usersLoading && users.length < usersTotal) {
+              fetchUsers();
+            }
+          }}
+          onEndReachedThreshold={0.3}
+          refreshing={usersLoading}
+          onRefresh={() => {
+            resetUsers();
+            fetchUsers({ reset: true });
+          }}
+          ListFooterComponent={
+            usersLoading && users.length > 0 ? (
+              <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                <ActivityIndicator color="#2e7d32" />
+              </View>
+            ) : null
+          }
+        />
+      )}
     </View>
   );
+
+  // Sensors & Observations state and helpers
+  const [sensors, setSensors] = useState([]);
+  const [sensorsLoading, setSensorsLoading] = useState(false);
+  const [sensorsError, setSensorsError] = useState(null);
+  const [sensorsByObservation, setSensorsByObservation] = useState({});
+  const [sensorsObsList, setSensorsObsList] = useState([]);
+  const [sensorsObsModalVisible, setSensorsObsModalVisible] = useState(false);
+  const [selectedSensorsObservation, setSelectedSensorsObservation] = useState(null);
+  const [selectedObservationSensors, setSelectedObservationSensors] = useState([]);
+  const [sensorSeriesBySensor, setSensorSeriesBySensor] = useState({});
+  const [sensorSeriesLoading, setSensorSeriesLoading] = useState(false);
+
+  const getSensorStatusColor = (status) => {
+    const colors = {
+      active: '#4CAF50',
+      inactive: '#9E9E9E',
+      maintenance: '#FF9800',
+      error: '#F44336',
+    };
+    return colors[(status || '').toLowerCase()] || '#607D8B';
+  };
+
+  const resetSensors = () => {
+    setSensors([]);
+    setSensorsError(null);
+    setSensorsByObservation({});
+    setSensorsObsList([]);
+    setSelectedSensorsObservation(null);
+    setSelectedObservationSensors([]);
+    setSensorsObsModalVisible(false);
+  };
+
+  const fetchSensors = async () => {
+    if (sensorsLoading) return;
+    try {
+      setSensorsLoading(true);
+      const token = await getAuthToken();
+      const res = await fetch(`${API_URL}/iot/sensors`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || `HTTP ${res.status}`);
+      const list = Array.isArray(json.sensors) ? json.sensors : [];
+      const mapped = list.map(s => ({
+        sensorId: s.sensorId ?? s.sensor_id ?? s.id,
+        name: s.name ?? s.sensor_name,
+        location: s.location ?? s.location_description,
+        status: s.status ?? 'active',
+        lastChecked: s.lastChecked ?? s.last_checked,
+        createdAt: s.createdAt ?? s.created_at,
+        updatedAt: s.updatedAt ?? s.updated_at,
+        observationId: s.observationId ?? s.observation_id,
+      }));
+      setSensors(mapped);
+
+      // Group sensors by observation
+      const grouped = {};
+      for (const s of mapped) {
+        const oid = s.observationId;
+        if (oid != null && oid !== undefined) {
+          if (!grouped[oid]) grouped[oid] = [];
+          grouped[oid].push(s);
+        }
+      }
+      setSensorsByObservation(grouped);
+
+      const obsIds = Object.keys(grouped).map(id => Number(id)).filter(Boolean);
+      if (obsIds.length > 0) {
+        // Fetch observation details for each id
+        const obsDetails = await Promise.all(obsIds.map(async (id) => {
+          try {
+            const res = await fetch(`${API_URL}/observations/${id}`, {
+              headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await res.json();
+            if (res.ok && data?.observation) return data.observation;
+            return { observation_id: id };
+          } catch (e) {
+            return { observation_id: id };
+          }
+        }));
+        // Preload plant names for display
+        try { await preloadPlantNames(obsDetails); } catch {}
+        setSensorsObsList(obsDetails);
+      } else {
+        setSensorsObsList([]);
+      }
+
+      setSensorsError(null);
+    } catch (err) {
+      console.error('Sensors fetch error:', err);
+      setSensorsError(err.message || 'Failed to load sensors');
+    } finally {
+      setSensorsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSection === 'sensors') {
+      resetSensors();
+      fetchSensors();
+    }
+  }, [activeSection]);
+
+  const fetchSensorReadingsForSensors = async (sensorsForObs) => {
+    try {
+      setSensorSeriesLoading(true);
+      const token = await getAuthToken();
+      const end = new Date();
+      const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+      const params = new URLSearchParams({
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        limit: String(1000),
+      });
+      await Promise.all(
+        sensorsForObs.map(async (s) => {
+          try {
+            const res = await fetch(`${API_URL}/iot/sensors/${s.sensorId}/data/range?${params.toString()}`, {
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+            });
+            const json = await res.json();
+            let list = Array.isArray(json?.data) ? json.data : [];
+            list = list
+              .map((r) => ({
+                readingTime: r.readingTime,
+                readingValue: typeof r.readingValue === 'number' ? r.readingValue : Number(r.readingValue),
+                readingType: r.readingType,
+              }))
+              .filter((r) => !isNaN(new Date(r.readingTime).getTime()) && !isNaN(r.readingValue));
+            list.sort((a, b) => new Date(a.readingTime) - new Date(b.readingTime));
+            setSensorSeriesBySensor((prev) => ({ ...prev, [s.sensorId]: list }));
+          } catch (e) {
+            setSensorSeriesBySensor((prev) => ({ ...prev, [s.sensorId]: [] }));
+          }
+        })
+      );
+    } catch (err) {
+      console.error('Fetch sensor readings error:', err);
+    } finally {
+      setSensorSeriesLoading(false);
+    }
+  };
+
+  const renderSensorChart = (series) => {
+    const containerPad = 12;
+    const h = 120;
+    const w = chartWidth > 0 ? Math.max(150, chartWidth - containerPad * 2) : 300;
+    const pad = 20;
+    if (!series || series.length === 0) {
+      return <Text style={styles.obsMetaText}>No readings</Text>;
+    }
+    const values = series.map((p) => p.readingValue);
+    const minV = Math.min(...values);
+    const maxV = Math.max(...values);
+    const rangeV = Math.max(1e-6, maxV - minV);
+    const times = series.map((p) => new Date(p.readingTime).getTime());
+    const minT = Math.min(...times);
+    const maxT = Math.max(...times);
+    const rangeT = Math.max(1, maxT - minT);
+    const coords = series.map((p) => {
+      const t = new Date(p.readingTime).getTime();
+      const x = pad + ((t - minT) / rangeT) * (w - pad * 2);
+      const y = pad + (h - pad * 2) * (1 - (p.readingValue - minV) / rangeV);
+      return { x, y };
+    });
+    const points = coords.map((c) => `${c.x},${c.y}`).join(' ');
+    const typeLabel = series[0]?.readingType ? String(series[0].readingType) : '';
+    // Build a smooth cubic Bezier path across points
+    const buildSmoothPath = (pts) => {
+      if (!pts || pts.length === 0) return '';
+      if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+      const d = [`M ${pts[0].x} ${pts[0].y}`];
+      for (let i = 1; i < pts.length; i++) {
+        const p0 = pts[i - 1];
+        const p1 = pts[i];
+        const dx = (p1.x - p0.x) / 3;
+        const c1x = p0.x + dx;
+        const c1y = p0.y;
+        const c2x = p1.x - dx;
+        const c2y = p1.y;
+        d.push(`C ${c1x} ${c1y} ${c2x} ${c2y} ${p1.x} ${p1.y}`);
+      }
+      return d.join(' ');
+    };
+    const smoothPath = buildSmoothPath(coords);
+    // Axis tick formatting and positions
+    const formatHHmm = (t) => {
+      const d = new Date(t);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    };
+    const yTickValues = [minV, minV + rangeV / 2, maxV];
+    const yTickPositions = yTickValues.map((v) => pad + (h - pad * 2) * (1 - (v - minV) / rangeV));
+    const xTickTimes = [minT, minT + rangeT / 2, maxT];
+    const xTickPositions = xTickTimes.map((t) => pad + ((t - minT) / rangeT) * (w - pad * 2));
+    const latest = series.slice(-5).reverse();
+    return (
+      <View style={styles.chartContainer} onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}>
+        <Text style={styles.chartTitle}>Last 24h{typeLabel ? ` • ${typeLabel}` : ''}</Text>
+        <Svg width={w} height={h} style={styles.chartSvg}>
+          <Line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="#ddd" strokeWidth={1} />
+          <Line x1={pad} y1={pad} x2={pad} y2={h - pad} stroke="#ddd" strokeWidth={1} />
+          {yTickPositions.map((yPos, idx) => (
+            <SvgText
+              key={`y-label-${idx}`}
+              x={pad - 6}
+              y={yPos}
+              fontSize={10}
+              fill="#888"
+              textAnchor="end"
+            >
+              {Number.isFinite(yTickValues[idx]) ? yTickValues[idx].toFixed(2) : ''}
+            </SvgText>
+          ))}
+          {xTickPositions.map((xPos, idx) => (
+            <SvgText
+              key={`x-label-${idx}`}
+              x={xPos}
+              y={h - pad + 12}
+              fontSize={10}
+              fill="#888"
+              textAnchor="middle"
+            >
+              {formatHHmm(xTickTimes[idx])}
+            </SvgText>
+          ))}
+          <Path d={smoothPath} fill="none" stroke="#2e7d32" strokeWidth={2} />
+          {coords.map((c, idx) => (
+            <Circle key={idx} cx={c.x} cy={c.y} r={2} fill="#2e7d32" />
+          ))}
+        </Svg>
+        <Text style={styles.obsMetaText}>Min {minV} • Max {maxV}</Text>
+        {latest && latest.length > 0 && (
+          <View style={{ marginTop: 6 }}>
+            <Text style={styles.obsMetaText}>Latest readings:</Text>
+            {latest.map((r, i) => (
+              <View key={`latest-${i}`} style={styles.obsMetaRow}>
+                <Text style={styles.obsMetaText}>{formatHHmm(new Date(r.readingTime).getTime())}</Text>
+                <Text style={styles.obsMetaText}> • {Number.isFinite(r.readingValue) ? r.readingValue.toFixed(2) : r.readingValue}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const openObservationSensorsModal = async (obs) => {
+    const oid = obs?.observation_id ?? obs?.id;
+    setSelectedSensorsObservation(obs);
+    const sensorsForObs = sensorsByObservation[oid] || [];
+    setSelectedObservationSensors(sensorsForObs);
+    setSensorsObsModalVisible(true);
+    await fetchSensorReadingsForSensors(sensorsForObs);
+  };
 
   const renderSensorsSection = () => (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Sensor Readings</Text>
+        <Text style={styles.sectionTitle}>Observations with Sensors</Text>
       </View>
-      <View style={styles.emptyState}>
-        <Ionicons name="hardware-chip-outline" size={48} color="#ccc" />
-        <Text style={styles.emptyStateText}>Sensor Readings</Text>
-        <Text style={styles.emptyStateSubtext}>Sensor data will appear here</Text>
-      </View>
+
+      {sensorsLoading ? (
+        <View style={styles.placeholderBox}>
+          <ActivityIndicator size="large" color="#2e7d32" />
+          <Text style={{ marginTop: 12, color: '#666' }}>Loading observations...</Text>
+        </View>
+      ) : sensorsError ? (
+        <View style={styles.placeholderBox}>
+          <Ionicons name="warning-outline" size={32} color="#F44336" />
+          <Text style={{ marginTop: 8, color: '#F44336' }}>{String(sensorsError)}</Text>
+        </View>
+      ) : (
+        <ScrollView style={styles.contentScroll}>
+          {sensorsObsList.map(obs => {
+            const oid = obs.observation_id;
+            const sensorsForObs = sensorsByObservation[oid] || [];
+            const pname = plantCache[obs.plant_id]?.common_name || `Plant #${obs.plant_id}`;
+            return (
+              <View key={oid} style={styles.plantCard}>
+                <View style={styles.plantHeader}>
+                  <Text style={styles.plantName}>{pname}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(obs.status) }]}> 
+                    <Text style={styles.statusText}>{(obs.status || 'unknown').toUpperCase()}</Text>
+                  </View>
+                </View>
+                <Text style={styles.scientificName}>{plantCache[obs.plant_id]?.scientific_name || ''}</Text>
+                <Text style={styles.obsMetaText}>Observation ID: {oid}</Text>
+                <Text style={styles.obsMetaText}>Sensors attached: {sensorsForObs.length}</Text>
+                <View style={styles.modelActions}>
+                  <TouchableOpacity 
+                    style={styles.viewDetailsButton}
+                    onPress={() => openObservationSensorsModal(obs)}
+                  >
+                    <Text style={styles.viewDetailsText}>View Sensors</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+
+          {sensorsObsList.length === 0 && (
+            <View style={styles.emptyState}>
+              <Ionicons name="hardware-chip-outline" size={48} color="#ccc" />
+              <Text style={styles.emptyStateText}>No observations have sensors yet</Text>
+              <Text style={styles.emptyStateSubtext}>Link an IoT sensor to an observation to see it here</Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* Observation Sensors Modal */}
+      <Modal
+        visible={sensorsObsModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSensorsObsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Sensors for Observation</Text>
+              <TouchableOpacity onPress={() => setSensorsObsModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBodyScroll} contentContainerStyle={styles.modalBody} nestedScrollEnabled showsVerticalScrollIndicator={true}>
+              {selectedSensorsObservation ? (
+                <>
+                  <Text style={styles.inputLabel}>
+                    {(plantCache[selectedSensorsObservation.plant_id]?.common_name) || `Plant #${selectedSensorsObservation.plant_id}`}
+                  </Text>
+                  <Text style={styles.scientificName}>
+                    {plantCache[selectedSensorsObservation.plant_id]?.scientific_name || ''}
+                  </Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedSensorsObservation.status) }]}> 
+                    <Text style={styles.statusText}>{(selectedSensorsObservation.status || 'unknown').toUpperCase()}</Text>
+                  </View>
+
+                  <View style={styles.infoBox}>
+                    <Ionicons name="information-circle-outline" size={18} color="#2E7D32" />
+                    <Text style={styles.infoText}>
+                      Below are all IoT sensors linked to this observation.
+                    </Text>
+                  </View>
+
+                  {selectedObservationSensors.map(sensor => (
+                    <View key={sensor.sensorId} style={styles.plantCard}>
+                      <View style={styles.plantHeader}>
+                        <Text style={styles.plantName}>{sensor.name}</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: getSensorStatusColor(sensor.status) }]}>
+                          <Text style={styles.statusText}>{(sensor.status || 'unknown').toUpperCase()}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.scientificName}>Location: {sensor.location || 'N/A'}</Text>
+                      {sensor.lastChecked && (
+                        <Text style={styles.scientificName}>Last Checked: {new Date(sensor.lastChecked).toLocaleString()}</Text>
+                      )}
+                      <Text style={styles.obsMetaText}>Sensor ID: {sensor.sensorId}</Text>
+                      {sensorSeriesLoading ? (
+                        <View style={styles.placeholderBox}>
+                          <ActivityIndicator size="small" color="#2e7d32" />
+                          <Text style={{ marginTop: 8, color: '#666' }}>Loading readings...</Text>
+                        </View>
+                      ) : (
+                        renderSensorChart(sensorSeriesBySensor[sensor.sensorId])
+                      )}
+                    </View>
+                  ))}
+
+                  {selectedObservationSensors.length === 0 && (
+                    <View style={styles.emptyState}>
+                      <Ionicons name="hardware-chip-outline" size={48} color="#ccc" />
+                      <Text style={styles.emptyStateText}>No sensors linked</Text>
+                      <Text style={styles.emptyStateSubtext}>This observation does not have any sensors</Text>
+                    </View>
+                  )}
+                </>
+              ) : null}
+            </ScrollView>
+
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 
@@ -1072,6 +1918,8 @@ const AdminScreen = () => {
         return renderPlantsSection();
     }
   };
+
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1454,6 +2302,161 @@ const AdminScreen = () => {
         </View>
       </Modal>
 
+      {/* Alert Details Modal */}
+      <Modal
+        visible={alertDetailVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setAlertDetailVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Alert Details</Text>
+              <TouchableOpacity onPress={() => setAlertDetailVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={[styles.modalBody, styles.detailModalBody]}>
+              {alertDetail ? (
+                <>
+                  <View style={styles.alertHeader}>
+                    <Text style={styles.alertTitle}>{alertDetail.type}</Text>
+                    <View style={[
+                      styles.severityBadge,
+                      { backgroundColor: getSeverityColor(alertDetail.severity) }
+                    ]}>
+                      <Text style={styles.severityText}>
+                        {alertDetail.severity ? alertDetail.severity.charAt(0).toUpperCase() + alertDetail.severity.slice(1) : 'Unknown'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Resolved status */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                    <Ionicons name={alertDetail.resolved === 1 ? 'checkmark-circle-outline' : 'close-circle-outline'} size={16} color={alertDetail.resolved === 1 ? '#2E7D32' : '#F44336'} />
+                    <Text style={[styles.obsMetaText, { marginLeft: 6, color: alertDetail.resolved === 1 ? '#2E7D32' : '#F44336' }]}>
+                      {alertDetail.resolved === 1 ? 'resolved' : 'unresolved'}
+                    </Text>
+                  </View>
+
+                  {/* Toggle resolved/unresolved */}
+                  <Text style={[styles.inputLabel, { marginTop: 4 }]}>Status</Text>
+                  <View style={styles.statusSelectRow}>
+                    <TouchableOpacity
+                      style={[styles.statusOption, alertDetail.resolved === 1 && styles.statusOptionActive]}
+                      disabled={alertResolving}
+                      onPress={async () => {
+                        if (alertDetail.resolved === 1) return;
+                        try {
+                          setAlertResolving(true);
+                          const token = await getAuthToken();
+                          const res = await fetch(`${API_URL}/iot/alerts/${alertDetail.id}/resolve`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                            },
+                          });
+                          const data = await res.json();
+                          if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
+                          setAlertDetail(prev => ({ ...prev, resolved: 1 }));
+                          setAlerts(prev => prev.map(a => a.id === alertDetail.id ? { ...a, resolved: 1 } : a));
+                        } catch (err) {
+                          Alert.alert('Error', err.message || 'Failed to resolve alert');
+                        } finally {
+                          setAlertResolving(false);
+                        }
+                      }}
+                    >
+                      <View style={[styles.statusDot, { backgroundColor: '#2E7D32' }]} />
+                      <Text style={styles.statusOptionText}>resolved</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.statusOption, alertDetail.resolved === 0 && styles.statusOptionActive]}
+                      disabled={alertResolving}
+                      onPress={async () => {
+                        if (alertDetail.resolved === 0) return;
+                        try {
+                          setAlertResolving(true);
+                          const token = await getAuthToken();
+                          const res = await fetch(`${API_URL}/iot/alerts/${alertDetail.id}/unresolve`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                            },
+                          });
+                          const data = await res.json();
+                          if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
+                          setAlertDetail(prev => ({ ...prev, resolved: 0 }));
+                          setAlerts(prev => prev.map(a => a.id === alertDetail.id ? { ...a, resolved: 0 } : a));
+                        } catch (err) {
+                          Alert.alert('Error', err.message || 'Failed to unresolve alert');
+                        } finally {
+                          setAlertResolving(false);
+                        }
+                      }}
+                    >
+                      <View style={[styles.statusDot, { backgroundColor: '#F44336' }]} />
+                      <Text style={styles.statusOptionText}>unresolved</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.detailSection}
+>
+                    <View style={styles.obsMetaRow}
+>
+                      <Ionicons name="construct-outline" size={16} color="#666" />
+                      <Text style={styles.obsMetaText}>Type: {alertDetail.type || '—'}</Text>
+                    </View>
+                    <View style={styles.obsMetaRow}>
+                      <Ionicons name="hardware-chip-outline" size={16} color="#666" />
+                      <Text style={styles.obsMetaText}>Sensor: {alertDetail.sensor || '—'}</Text>
+                    </View>
+                    <View style={styles.obsMetaRow}>
+                      <Ionicons name="alert-outline" size={16} color="#666" />
+                      <Text style={styles.obsMetaText}>Message: {alertDetail.message || '—'}</Text>
+                    </View>
+                    <View style={styles.obsMetaRow}>
+                      <Ionicons name="speedometer-outline" size={16} color="#666" />
+                      <Text style={styles.obsMetaText}>Score: {alertDetail.score != null ? String(alertDetail.score) : '—'}</Text>
+                    </View>
+                    <View style={styles.obsMetaRow}>
+                      <Ionicons name="time-outline" size={16} color="#666" />
+                      <Text style={styles.obsMetaText}>Time: {alertDetail.timestamp || '—'}</Text>
+                    </View>
+                    {alertDetail.observation ? (
+                      <View style={styles.infoBox}>
+                        <Ionicons name="information-circle-outline" size={16} color="#2E7D32" />
+                        <Text style={styles.infoText}>
+                          Observation: {alertDetail.observation}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </>
+              ) : (
+                <View style={styles.plotError}>
+                  <Ionicons name="alert-circle" size={32} color="#F44336" />
+                  <Text style={styles.plotErrorText}>No alert selected</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setAlertDetailVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Add Plant Modal */}
       <Modal
         visible={plantModalVisible}
@@ -1632,6 +2635,206 @@ const AdminScreen = () => {
                 ) : (
                   <Text style={styles.saveButtonText}>Start Training</Text>
                 )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Create User Modal */}
+      <Modal
+        visible={createUserModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setCreateUserModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Create User</Text>
+              <TouchableOpacity onPress={() => setCreateUserModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.inputLabel}>Username *</Text>
+              <TextInput 
+                style={styles.textInput}
+                placeholder="Enter username"
+                value={createUserForm.username}
+                onChangeText={(t) => setCreateUserForm(prev => ({ ...prev, username: t }))}
+              />
+
+              <Text style={styles.inputLabel}>Email *</Text>
+              <TextInput 
+                style={styles.textInput}
+                placeholder="Enter email"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={createUserForm.email}
+                onChangeText={(t) => setCreateUserForm(prev => ({ ...prev, email: t }))}
+              />
+
+              <Text style={styles.inputLabel}>Password *</Text>
+              <TextInput 
+                style={styles.textInput}
+                placeholder="Enter password"
+                secureTextEntry
+                value={createUserForm.password}
+                onChangeText={(t) => setCreateUserForm(prev => ({ ...prev, password: t }))}
+              />
+
+              <Text style={styles.inputLabel}>Role</Text>
+              <View>
+                {USER_ROLES.map((role) => (
+                  <TouchableOpacity
+                    key={`form-role-${role}`}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                    onPress={() => setCreateUserForm(prev => ({ ...prev, role }))}
+                  >
+                    <Ionicons
+                      name={createUserForm.role === role ? 'radio-button-on' : 'radio-button-off'}
+                      size={20}
+                      color={createUserForm.role === role ? '#2e7d32' : '#666'}
+                    />
+                    <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{role}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setCreateUserModalVisible(false)}
+                disabled={createUserSaving}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.saveButton, createUserSaving && styles.disabledButton]}
+                onPress={handleSaveCreateUser}
+                disabled={createUserSaving}
+              >
+                {createUserSaving ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Create User</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Users Filter & Sort Modal */}
+      <Modal
+        visible={usersFilterModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setUsersFilterModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filter & Sort Users</Text>
+              <TouchableOpacity onPress={() => setUsersFilterModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.inputLabel}>Filter by Role</Text>
+              <View>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                  onPress={() => setUsersFilterTempRole(null)}
+                >
+                  <Ionicons
+                    name={usersFilterTempRole == null ? 'radio-button-on' : 'radio-button-off'}
+                    size={20}
+                    color={usersFilterTempRole == null ? '#2e7d32' : '#666'}
+                  />
+                  <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>All roles</Text>
+                </TouchableOpacity>
+                {USER_ROLES.map((role) => (
+                  <TouchableOpacity
+                    key={`filter-role-${role}`}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                    onPress={() => setUsersFilterTempRole(role)}
+                  >
+                    <Ionicons
+                      name={usersFilterTempRole === role ? 'radio-button-on' : 'radio-button-off'}
+                      size={20}
+                      color={usersFilterTempRole === role ? '#2e7d32' : '#666'}
+                    />
+                    <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{role}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.inputLabel}>Sort by</Text>
+              <View>
+                {[
+                  { key: 'name', label: 'Name' },
+                  { key: 'email', label: 'Email' },
+                ].map(opt => (
+                  <TouchableOpacity
+                    key={`sort-key-${opt.key}`}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                    onPress={() => setUsersSortTempKey(opt.key)}
+                  >
+                    <Ionicons
+                      name={usersSortTempKey === opt.key ? 'radio-button-on' : 'radio-button-off'}
+                      size={20}
+                      color={usersSortTempKey === opt.key ? '#2e7d32' : '#666'}
+                    />
+                    <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.inputLabel}>Sort order</Text>
+              <View>
+                {[
+                  { key: 'asc', label: 'Ascending (A→Z)' },
+                  { key: 'desc', label: 'Descending (Z→A)' },
+                ].map(opt => (
+                  <TouchableOpacity
+                    key={`sort-order-${opt.key}`}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                    onPress={() => setUsersSortTempOrder(opt.key)}
+                  >
+                    <Ionicons
+                      name={usersSortTempOrder === opt.key ? 'radio-button-on' : 'radio-button-off'}
+                      size={20}
+                      color={usersSortTempOrder === opt.key ? '#2e7d32' : '#666'}
+                    />
+                    <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={clearUsersFilters}
+              >
+                <Text style={styles.cancelButtonText}>Clear Filters</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setUsersFilterModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.saveButton}
+                onPress={applyUsersFilterSort}
+              >
+                <Text style={styles.saveButtonText}>Apply</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2058,10 +3261,14 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    maxHeight: '100%',
-  },
+     backgroundColor: 'white',
+     borderRadius: 12,
+     maxHeight: '90%',
+     overflow: 'hidden',
+   },
+   modalBodyScroll: {
+     maxHeight: '100%',
+   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2265,6 +3472,18 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  chartContainer: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+  },
+  chartTitle: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  chartSvg: {
+    marginBottom: 4,
   },
 });
 
