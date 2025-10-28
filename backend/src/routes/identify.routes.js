@@ -1,6 +1,7 @@
 const express = require('express');
 const upload = require('../middleware/upload');
 const IdentifyController = require('../controller/identifyController');
+const classificationController = require('../controller/classificationController');
 
 const identifyRouter = express.Router();
 
@@ -21,6 +22,18 @@ identifyRouter.post(
 identifyRouter.post(
   '/submit-observation',
   IdentifyController.submitObservation
+);
+
+// AI Classification
+identifyRouter.post(
+  '/classify',
+  classificationController.classifyImage
+);
+
+// Delete uploaded image
+identifyRouter.post(
+  '/delete-image',
+  IdentifyController.deleteImage
 );
 
 // Placeholder routes kept for compatibility/demo
