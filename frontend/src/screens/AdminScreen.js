@@ -591,7 +591,6 @@ const loadMockData = () => { /* no-op */ };
       
       if (response.ok) {
         const data = await response.json();
-        console.log('Models loaded successfully:', data);
         setModels(data.models || []);
       } else {
         console.error('Failed to load models:', response.status);
@@ -627,8 +626,7 @@ const loadMockData = () => { /* no-op */ };
   const startTraining = async () => {
     try {
       setLoading(true);
-      // const token = await getAuthToken();
-      const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MTUsImVtYWlsIjoiam9uYXRoYW55ZW9ra0BnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NjA2OTg4OTAsImV4cCI6MTc2MDY5OTc5MH0.Ogeq5TruCbQr_vXtjEAUxGHChBaC2qL3gXoBBYTABA8'; // For testing purposes only
+      const token = await getAuthToken();
         
       const response = await fetch(`${API_URL}/admin/train`, {
         method: 'POST',
@@ -645,15 +643,12 @@ const loadMockData = () => { /* no-op */ };
       });
 
       const data = await response.json();
-
-     
         
       if (response.ok) {
         setTrainingStatus(data.status);
         setTrainingModalVisible(false);
         Alert.alert('Success', 'Model training started successfully!');
       } else {
-        
         Alert.alert('Error', data.message || 'Failed to start training');
       }
     } catch (error) {
@@ -667,51 +662,26 @@ const loadMockData = () => { /* no-op */ };
   const stopTraining = async () => {
     Alert.alert(
       'Stop Training',
-      'Are you sure you want to stop the training process and delete the incomplete model?',
+      'Are you sure you want to stop the training process?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Stop & Delete',
+          text: 'Stop',
           style: 'destructive',
           onPress: async () => {
             try {
               const token = await getAuthToken();
-              
-              // 1. First stop the training process
-              const stopResponse = await fetch(`${API_URL}/admin/train/stop`, {
+              const response = await fetch(`${API_URL}/admin/train/stop`, {
                 method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` },
               });
 
-              if (stopResponse.ok) {
-                const data = await stopResponse.json();
-                setTrainingStatus(data.status);
-                
-                // 2. Delete the incomplete model files (force delete)
-                if (trainingStatus?.modelName) {
-                  const deleteResponse = await fetch(
-                    `${API_URL}/admin/models/${trainingStatus.modelName}?force=true`,
-                    {
-                      method: 'DELETE',
-                      headers: {
-                        'Authorization': `Bearer ${token}`
-                      }
-                    }
-                  );
-
-                  if (deleteResponse.ok) {
-                    Alert.alert('Success', 'Training stopped and incomplete model deleted');
-                    loadModels(); // Refresh the models list
-                  } else {
-                    Alert.alert('Success', 'Training stopped (but could not delete model files)');
-                  }
-                } else {
-                  Alert.alert('Success', 'Training stopped');
-                }
+              const data = await response.json();
+              if (response.ok) {
+                Alert.alert('Success', data.message);
+                loadModels();
               } else {
-                Alert.alert('Error', 'Failed to stop training');
+                Alert.alert('Error', data.message || 'Failed to stop training');
               }
             } catch (error) {
               console.error('Error stopping training:', error);
@@ -732,10 +702,11 @@ const loadMockData = () => { /* no-op */ };
           'Authorization': `Bearer ${token}`
         }
       });
-      
       if (response.ok) {
         Alert.alert('Success', 'Model activated successfully');
         loadModels(); // Reload the models list
+      } else {
+        Alert.alert('Error', data.message || 'Failed to activate model');
       }
     } catch (error) {
       console.error('Error activating model:', error);
@@ -1868,13 +1839,16 @@ const loadMockData = () => { /* no-op */ };
                 <Ionicons name="stats-chart" size={18} color="white" />
                 <Text style={styles.addButtonText}>View Plot</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.deleteButton}
-                onPress={() => deleteModel(model.name)}
-              >
-                <Ionicons name="trash" size={18} color="white" />
-                <Text style={styles.addButtonText}>Delete</Text>
-              </TouchableOpacity>
+              {!model.active && model.name !== 'default_model' &&(
+                <TouchableOpacity 
+                  style={styles.deleteButton}
+                  onPress={() => deleteModel(model.name)}
+                >
+                  <Ionicons name="trash" size={18} color="white" />
+                  <Text style={styles.addButtonText}>Delete</Text>
+                </TouchableOpacity>
+              )}
+              
             </View>
           </View>
         ))}
