@@ -22,14 +22,15 @@ adminRouter.use((req, res, next) => {
   next();
 });
 
-
+// Model management (admin)
 adminRouter.post('/train', auth.requireAdmin, trainingController.startTraining);
 adminRouter.get('/train/status', auth.requireAdmin, trainingController.getTrainingStatus);
 adminRouter.post('/train/stop', auth.requireAdmin, trainingController.stopTraining);
 adminRouter.get('/models', auth.requireAdmin, trainingController.getModels);
 adminRouter.delete('/models/:modelName', auth.requireAdmin, trainingController.deleteModel);
-adminRouter.patch('/models/:modelName/activate', auth.requireAdmin, trainingController.activateModel);
 adminRouter.get('/models/:modelName/plot', auth.requireAdmin, trainingController.getModelPlot);
+adminRouter.patch('/models/:modelName/activate', auth.requireAdmin, trainingController.activateModel);
+adminRouter.post('/train/finish', trainingController.finishTraining);
 
 adminRouter.post('/cleanup-tokens', auth.requireAdmin, authController.cleanupExpiredTokens);
 
