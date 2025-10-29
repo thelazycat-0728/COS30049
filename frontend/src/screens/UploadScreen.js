@@ -479,13 +479,13 @@ const UploadScreen = () => {
       <Text style={styles.title}>Upload New Plant Discovery</Text>
 
       <View style={styles.statusBar}>
-        {isOffline && (
+        {/*isOffline && (
           <View style={styles.offlineBanner}>
             <Text style={styles.offlineText}>
               📡 Offline Mode - AI disabled, using mock predictions
             </Text>
           </View>
-        )}
+        )*/}
         {/* {PlantClassifierService.isOfflineCapable() && (
           <View style={styles.offlineCapableBanner}>
             <Text style={styles.offlineCapableText}>✅ Offline AI Ready</Text>
