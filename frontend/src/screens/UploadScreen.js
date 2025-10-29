@@ -486,11 +486,11 @@ const UploadScreen = () => {
             </Text>
           </View>
         )}
-        // {PlantClassifierService.isOfflineCapable() && (
-        //   <View style={styles.offlineCapableBanner}>
-        //     <Text style={styles.offlineCapableText}>✅ Offline AI Ready</Text>
-        //   </View>           (unused for now)
-        // )}
+        {/* {PlantClassifierService.isOfflineCapable() && (
+          <View style={styles.offlineCapableBanner}>
+            <Text style={styles.offlineCapableText}>✅ Offline AI Ready</Text>
+          </View>            (unused for now)
+        )} */}
         {uploading && (
           <View style={styles.uploadingContainer}>
             <ActivityIndicator size="large" color="#4CAF50" />
