@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const StorageService = require('../services/storageService');
 
 // Allowed conservation status values
 const CONSERVATION_STATUSES = [
@@ -13,7 +14,7 @@ class PlantController {
   static async getAll(req, res) {
     try {
       const [rows] = await pool.execute(
-        `SELECT plant_id, scientific_name, species, common_name, family, description, conservation_status, created_at, updated_at
+        `SELECT plant_id, scientific_name, species, common_name, family, description, conservation_status, image_url, created_at, updated_at
          FROM Plants
          ORDER BY created_at DESC`
       );
@@ -56,10 +57,21 @@ class PlantController {
         return res.status(400).json({ success: false, error: 'Invalid conservation_status' });
       }
 
+      // Handle image upload if provided
+      let imageUrl = null;
+      if (req.file) {
+        try {
+          imageUrl = await StorageService.uploadImage(req.file);
+        } catch (e) {
+          console.error('Image upload failed:', e);
+          return res.status(500).json({ success: false, error: 'Failed to upload image' });
+        }
+      }
+
       const [result] = await pool.execute(
-        `INSERT INTO Plants (scientific_name, species, common_name, family, description, conservation_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-        [scientific_name, species, common_name, family, description, conservation_status]
+        `INSERT INTO Plants (scientific_name, species, common_name, family, description, conservation_status, image_url, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [scientific_name, species, common_name, family, description, conservation_status, imageUrl]
       );
       const insertId = result.insertId;
       const [rows] = await pool.execute('SELECT * FROM Plants WHERE plant_id = ?', [insertId]);
@@ -94,6 +106,28 @@ class PlantController {
       if (family !== undefined) { fields.push('family = ?'); params.push(family); }
       if (description !== undefined) { fields.push('description = ?'); params.push(description); }
       if (conservation_status !== undefined) { fields.push('conservation_status = ?'); params.push(conservation_status); }
+
+      // Handle image upload if provided
+      let newImageUrl;
+      if (req.file) {
+        try {
+          // Get current image to delete later
+          const [existingRows] = await pool.execute('SELECT image_url FROM Plants WHERE plant_id = ?', [id]);
+          const oldImageUrl = existingRows && existingRows[0] ? existingRows[0].image_url : null;
+
+          newImageUrl = await StorageService.uploadImage(req.file);
+          fields.push('image_url = ?');
+          params.push(newImageUrl);
+
+          // Delete old image file if exists
+          if (oldImageUrl) {
+            try { await StorageService.deleteImage(oldImageUrl); } catch (e) { console.warn('Failed to delete old image:', e.message); }
+          }
+        } catch (e) {
+          console.error('Image upload failed:', e);
+          return res.status(500).json({ success: false, error: 'Failed to upload image' });
+        }
+      }
 
       if (fields.length === 0) {
         return res.status(400).json({ success: false, error: 'No fields to update' });

@@ -4,6 +4,7 @@ const userController = require('../controller/userController');
 const authController = require('../controller/authController');
 const trainingController = require('../controller/trainingController');
 const plantController = require('../controller/plantController');
+const upload = require('../middleware/upload');
 
 
 const adminRouter = express.Router();
@@ -37,8 +38,8 @@ adminRouter.post('/cleanup-tokens', auth.requireAdmin, authController.cleanupExp
 // Plants management (admin/expert)
 adminRouter.get('/plants', auth.requireExpert, plantController.getAll);
 adminRouter.get('/plants/:plant_id', auth.requireExpert, plantController.getById);
-adminRouter.post('/plants', auth.requireExpert, plantController.create);
-adminRouter.put('/plants/:plant_id', auth.requireExpert, plantController.update);
+adminRouter.post('/plants', auth.requireExpert, upload.single('image'), plantController.create);
+adminRouter.put('/plants/:plant_id', auth.requireExpert, upload.single('image'), plantController.update);
 adminRouter.delete('/plants/:plant_id', auth.requireExpert, plantController.delete);
 
 

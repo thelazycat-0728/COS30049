@@ -19,6 +19,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapView, { Marker } from 'react-native-maps';
 import Svg, { Polyline, Line, Circle, Path, Text as SvgText } from 'react-native-svg';
+import * as ImagePicker from 'expo-image-picker';
 const API_URL = process.env.EXPO_PUBLIC_API_BASE;
 
 
@@ -448,6 +449,8 @@ const loadMockData = () => { /* no-op */ };
     family: '',
     description: '',
     conservation_status: '',
+    image_url: null,
+    imageAsset: null,
   });
 
   const fetchPlants = async () => {
@@ -463,7 +466,7 @@ const loadMockData = () => { /* no-op */ };
       if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
       const list = Array.isArray(data.plants) ? data.plants : [];
       // Map backend rows to UI structure
-      setPlants(list.map(row => ({
+      const mapped = list.map(row => ({
         id: row.plant_id,
         name: row.common_name || `Plant #${row.plant_id}`,
         scientificName: row.scientific_name || '',
@@ -474,7 +477,29 @@ const loadMockData = () => { /* no-op */ };
         created_at: row.created_at,
         updated_at: row.updated_at,
         plant_id: row.plant_id,
-      })));
+        image_url: row.image_url || row.image || null,
+      }));
+      setPlants(mapped);
+      // Fallback: fetch image_url from map endpoint if missing in admin response
+      try {
+        const updates = await Promise.all(mapped.map(async (p) => {
+          if (!p.image_url) {
+            try {
+              const r = await fetch(`${API_URL}/map/plants/${p.plant_id}`);
+              if (r.ok) {
+                const plant = await r.json();
+                const img = plant?.image_url || plant?.image || null;
+                return img ? { id: p.id, image_url: img } : null;
+              }
+            } catch (e) {}
+          }
+          return null;
+        }));
+        const updatesById = updates.filter(Boolean).reduce((acc, u) => { acc[u.id] = u.image_url; return acc; }, {});
+        if (Object.keys(updatesById).length) {
+          setPlants(prev => prev.map(p => (updatesById[p.id] ? { ...p, image_url: updatesById[p.id] } : p)));
+        }
+      } catch {}
     } catch (err) {
       console.error('Plants fetch error:', err);
       Alert.alert('Error', err.message || 'Failed to load plants');
@@ -490,6 +515,8 @@ const loadMockData = () => { /* no-op */ };
       family: '',
       description: '',
       conservation_status: '',
+      image_url: null,
+      imageAsset: null,
     });
     setPlantModalVisible(true);
   };
@@ -503,8 +530,36 @@ const loadMockData = () => { /* no-op */ };
       family: plant.family || '',
       description: plant.description || '',
       conservation_status: plant.conservation_status || '',
+      image_url: plant.image_url || null,
+      imageAsset: null,
     });
     setPlantModalVisible(true);
+  };
+
+  const pickPlantImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please grant photo library access to select an image');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setPlantForm(prev => ({ ...prev, imageAsset: asset }));
+      }
+    } catch (err) {
+      console.error('Image pick error:', err);
+      Alert.alert('Error', err.message || 'Failed to pick image');
+    }
+  };
+
+  const removePlantImage = () => {
+    setPlantForm(prev => ({ ...prev, imageAsset: null }));
   };
 
   const handleSavePlant = async () => {
@@ -514,14 +569,30 @@ const loadMockData = () => { /* no-op */ };
       const isEdit = !!selectedPlant?.plant_id;
       const url = isEdit ? `${API_URL}/admin/plants/${selectedPlant.plant_id}` : `${API_URL}/admin/plants`;
       const method = isEdit ? 'PUT' : 'POST';
-      const payload = { ...plantForm };
+
+      // Build multipart form data with text fields
+      const formData = new FormData();
+      formData.append('common_name', plantForm.common_name || '');
+      formData.append('scientific_name', plantForm.scientific_name || '');
+      formData.append('species', plantForm.species || '');
+      formData.append('family', plantForm.family || '');
+      formData.append('description', plantForm.description || '');
+      formData.append('conservation_status', plantForm.conservation_status || '');
+
+      // Attach image file if selected
+      if (plantForm.imageAsset?.uri) {
+        const uri = plantForm.imageAsset.uri;
+        const name = uri.split('/').pop() || `plant-${Date.now()}.jpg`;
+        const type = 'image/jpeg';
+        formData.append('image', { uri, name, type });
+      }
+
       const res = await fetch(url, {
         method,
         headers: {
-          'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(payload),
+        body: formData,
       });
       const data = await res.json();
       if (!res.ok || !data?.success) {
@@ -995,6 +1066,9 @@ const loadMockData = () => { /* no-op */ };
                   {(plant.conservation_status || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
                 </Text>
               </View>
+            ) : null}
+            {plant.image_url ? (
+              <Image source={{ uri: plant.image_url }} style={styles.obsImage} />
             ) : null}
             <Text style={styles.plantDescription}>{plant.description}</Text>
             <Text style={styles.plantFamily}>Family: {plant.family}</Text>
@@ -2509,6 +2583,37 @@ const loadMockData = () => { /* no-op */ };
                   </TouchableOpacity>
                 ))}
               </View>
+
+              <Text style={styles.inputLabel}>Plant Image</Text>
+              {(plantForm.imageAsset?.uri || plantForm.image_url) ? (
+                <Image
+                  source={{ uri: plantForm.imageAsset?.uri || plantForm.image_url }}
+                  style={styles.obsImage}
+                />
+              ) : (
+                <View style={styles.placeholderBox}>
+                  <Ionicons name="image-outline" size={40} color="#9E9E9E" />
+                  <Text style={{ color: '#9E9E9E', marginTop: 8 }}>No image selected</Text>
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <TouchableOpacity style={styles.addButton} onPress={pickPlantImage}>
+                  <Ionicons name="image" size={18} color="#fff" />
+                  <Text style={[styles.addButtonText, { marginLeft: 6 }]}>{selectedPlant ? 'Replace Image' : 'Choose Image'}</Text>
+                </TouchableOpacity>
+                {plantForm.imageAsset?.uri ? (
+                  <TouchableOpacity style={styles.cancelButton} onPress={removePlantImage}>
+                    <Ionicons name="trash-outline" size={18} color="#666" />
+                    <Text style={[styles.cancelButtonText, { marginLeft: 6 }]}>Remove</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {selectedPlant ? (
+                <View style={styles.infoBox}>
+                  <Ionicons name="information-circle-outline" size={16} color="#2E7D32" />
+                  <Text style={styles.infoText}>If you don't choose a new image, the existing image will be kept.</Text>
+                </View>
+              ) : null}
             </ScrollView>
             
             <View style={styles.modalActions}>
@@ -2815,6 +2920,138 @@ const loadMockData = () => { /* no-op */ };
         </View>
       </Modal>
 
+      {/* Alerts Filter & Sort Modal */}
+      <Modal
+        visible={alertsFilterModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setAlertsFilterModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Alerts Filter & Sort</Text>
+              <TouchableOpacity onPress={() => setAlertsFilterModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBodyScroll}>
+              <View style={styles.modalBody}>
+                <Text style={styles.inputLabel}>Filter by severity</Text>
+                <View>
+                  {[
+                    { key: 'all', label: 'All severities', value: null },
+                    { key: 'low', label: 'Low', value: 'low' },
+                    { key: 'medium', label: 'Medium', value: 'medium' },
+                    { key: 'high', label: 'High', value: 'high' },
+                    { key: 'critical', label: 'Critical', value: 'critical' },
+                  ].map(opt => (
+                    <TouchableOpacity
+                      key={`alerts-severity-${opt.key}`}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                      onPress={() => setAlertsFilterTempSeverity(opt.value)}
+                    >
+                      <Ionicons
+                        name={alertsFilterTempSeverity === opt.value ? 'radio-button-on' : 'radio-button-off'}
+                        size={20}
+                        color={alertsFilterTempSeverity === opt.value ? '#2e7d32' : '#666'}
+                      />
+                      <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.inputLabel}>Filter by type</Text>
+                <View>
+                  {[
+                    { key: 'all', label: 'All types', value: null },
+                    ...alertTypes.map(t => ({ key: `type-${t}`, label: t, value: t }))
+                  ].map(opt => (
+                    <TouchableOpacity
+                      key={`alerts-type-${opt.key}`}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                      onPress={() => setAlertsFilterTempType(opt.value)}
+                    >
+                      <Ionicons
+                        name={alertsFilterTempType === opt.value ? 'radio-button-on' : 'radio-button-off'}
+                        size={20}
+                        color={alertsFilterTempType === opt.value ? '#2e7d32' : '#666'}
+                      />
+                      <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.inputLabel}>Sort by</Text>
+                <View>
+                  {[
+                    { key: 'timestamp', label: 'Timestamp (latest first)' },
+                    { key: 'severity', label: 'Severity' },
+                    { key: 'score', label: 'Score' },
+                  ].map(opt => (
+                    <TouchableOpacity
+                      key={`alerts-sort-key-${opt.key}`}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                      onPress={() => setAlertsSortTempKey(opt.key)}
+                    >
+                      <Ionicons
+                        name={alertsSortTempKey === opt.key ? 'radio-button-on' : 'radio-button-off'}
+                        size={20}
+                        color={alertsSortTempKey === opt.key ? '#2e7d32' : '#666'}
+                      />
+                      <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.inputLabel}>Sort order</Text>
+                <View>
+                  {[
+                    { key: 'asc', label: 'Ascending (low→high)' },
+                    { key: 'desc', label: 'Descending (high→low)' },
+                  ].map(opt => (
+                    <TouchableOpacity
+                      key={`alerts-sort-order-${opt.key}`}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                      onPress={() => setAlertsSortTempOrder(opt.key)}
+                    >
+                      <Ionicons
+                        name={alertsSortTempOrder === opt.key ? 'radio-button-on' : 'radio-button-off'}
+                        size={20}
+                        color={alertsSortTempOrder === opt.key ? '#2e7d32' : '#666'}
+                      />
+                      <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={clearAlertsFilters}
+              >
+                <Text style={styles.cancelButtonText}>Clear Filters</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setAlertsFilterModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.saveButton}
+                onPress={applyAlertsFilterSort}
+              >
+                <Text style={styles.saveButtonText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* View Plot Modal */}
       <Modal
         visible={plotModalVisible}
@@ -2993,6 +3230,25 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: '#2e7d32',
     fontWeight: '600',
+  },
+  // Alerts filter chip styles
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    gap: 6,
+    marginRight: 8,
+    marginBottom: 6,
+  },
+  filterChipText: {
+    fontSize: 13,
+    color: '#666',
+    marginRight: 4,
   },
   plantCard: {
     backgroundColor: '#ffffff',
