@@ -26,6 +26,7 @@ CREATE TABLE Plants (
     species VARCHAR(255),
     common_name VARCHAR(255),
     family VARCHAR(255),
+    image_url VARCHAR(500),
     description TEXT,
     conservation_status ENUM('least_concern', 'near_threatened', 'vulnerable', 'endangered', 'critically_endangered') DEFAULT 'least_concern',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
