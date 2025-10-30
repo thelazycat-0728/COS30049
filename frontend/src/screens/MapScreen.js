@@ -1,5 +1,5 @@
 // src/screens/MapScreen.js - Updated with navigation, App.js-style filters, and MapView
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,30 +11,43 @@ import {
   Modal,
   Image,
   ScrollView,
-  Button,
+  AccessibilityInfo,
+  Platform,
+  Pressable,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 // Removed: PROVIDER_GOOGLE
-import MapView, { Marker, Circle, Heatmap } from 'react-native-maps';
+import MapView, { Marker, Heatmap } from 'react-native-maps';
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 
 const MapScreen = () => {
   const navigation = useNavigation();
   const [searchText, setSearchText] = useState('');
+  const mapRef = useRef(null);
+  // Removed unused markerRefs (previously for programmatic callouts)
   // Filters (replicated from image-location-app/App.js)
   const ALL_STATUSES = ['least_concern', 'near_threatened', 'vulnerable'];
   const [filterVisible, setFilterVisible] = useState(false);
-  const [filterFamily, setFilterFamily] = useState('');
+  // Plant family multi-select
+  const [filterFamilies, setFilterFamilies] = useState([]);
+  const [familyOptions, setFamilyOptions] = useState([]);
+  const [familyDropdownVisible, setFamilyDropdownVisible] = useState(false);
+  const [tempFilterFamilies, setTempFilterFamilies] = useState([]);
   const [filterStatuses, setFilterStatuses] = useState([]);
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  const [datePreset, setDatePreset] = useState(null);
   const [filterError, setFilterError] = useState(null);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [showPlantCard, setShowPlantCard] = useState(false);
+  const [mapLayout, setMapLayout] = useState({ width: 0, height: 0 });
+  const [cardDims, setCardDims] = useState({ width: 280, height: 220 });
+  const [cardPosition, setCardPosition] = useState({ left: 16, top: 16 });
+  const [lastPinPoint, setLastPinPoint] = useState(null);
   const [locations, setLocations] = useState([]);
-  const [markersLoading, setMarkersLoading] = useState(false);
-  const [markersError, setMarkersError] = useState(null);
+  const [resultsCount, setResultsCount] = useState(0);
   const [mapRegion, setMapRegion] = useState({
     latitude: -37.8136,
     longitude: 144.9631,
@@ -47,36 +60,79 @@ const MapScreen = () => {
   const [heatRadius, setHeatRadius] = useState(40);
   const [heatOpacity, setHeatOpacity] = useState(0.7);
   const [heatGradient, setHeatGradient] = useState({
-    colors: ['#4fc3f7', '#29b6f6', '#0288d1', '#ef6c00', '#d84315', '#b71c1c'],
+    colors: ['rgba(79,195,247,0)', '#29b6f6', '#0288d1', '#ef6c00', '#d84315', '#b71c1c'],
     startPoints: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
     colorMapSize: 256,
   });
   const [densityPoints, setDensityPoints] = useState([]);
   const [densityMax, setDensityMax] = useState(1);
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const [hasAutoFitted, setHasAutoFitted] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState(null); // { loc, mapped }
+
+  const withTimeout = (promise, ms) =>
+    new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('Location timeout')), ms);
+      promise
+        .then((v) => {
+          clearTimeout(t);
+          resolve(v);
+        })
+        .catch((e) => {
+          clearTimeout(t);
+          reject(e);
+        });
+    });
 
   useEffect(() => {
     (async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          return;
+        let perm = await Location.getForegroundPermissionsAsync();
+        if (perm.status !== 'granted') {
+          const req = await Location.requestForegroundPermissionsAsync();
+          if (req.status !== 'granted') {
+            return;
+          }
         }
-        const loc = await Location.getCurrentPositionAsync({});
+        const last = await Location.getLastKnownPositionAsync();
+        const accuracy = Platform.OS === 'android' ? Location.Accuracy.Balanced : Location.Accuracy.High;
+        let loc = null;
+        try {
+          loc = await withTimeout(Location.getCurrentPositionAsync({ accuracy }), 6000);
+        } catch (e) {}
+        const final = loc || last;
+        if (!final) return;
         const region = {
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
+          latitude: final.coords.latitude,
+          longitude: final.coords.longitude,
           latitudeDelta: 0.02,
           longitudeDelta: 0.02,
         };
+        if (!hasUserInteracted) {
+          if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
+            mapRef.current.animateToRegion(region, 600);
+          }
+        }
         setMapRegion(region);
         setPinCoords({ latitude: region.latitude, longitude: region.longitude });
       } catch (err) {
         console.warn('Location error:', err?.message || err);
       }
     })();
-  }, []);
+  }, [hasUserInteracted]);
 
   // Heatmap helpers and fetching
+  const formatDateISO = (dateObj) => {
+    try {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    } catch {
+      return '';
+    }
+  };
+
   const getRegionBounds = (region) => {
     if (!region) return null;
     const halfLat = region.latitudeDelta / 2;
@@ -94,7 +150,8 @@ const MapScreen = () => {
       if (!mapRegion) return;
       const params = new URLSearchParams();
       params.set('limit', '2000');
-      if (filterFamily.trim()) params.set('family', filterFamily.trim());
+      const selFamiliesForHeat = Array.isArray(filterFamilies) ? filterFamilies.filter(Boolean) : [];
+      if (selFamiliesForHeat.length === 1) params.set('family', selFamiliesForHeat[0]);
       const allowedStatuses = ALL_STATUSES;
       const selectedStatuses = filterStatuses.filter((s) => allowedStatuses.includes(s));
       if (selectedStatuses.length) params.set('conservation_status', selectedStatuses.join(','));
@@ -125,11 +182,10 @@ const MapScreen = () => {
   // Fetch public locations (markers) from backend
   const fetchLocations = async () => {
     try {
-      setMarkersLoading(true);
-      setMarkersError(null);
       const params = new URLSearchParams();
       params.set('limit', '500');
-      if (filterFamily.trim()) params.set('family', filterFamily.trim());
+      const selFamilies = Array.isArray(filterFamilies) ? filterFamilies.filter(Boolean) : [];
+      if (selFamilies.length === 1) params.set('family', selFamilies[0]);
       const selectedStatuses = filterStatuses.filter((s) => ALL_STATUSES.includes(s));
       if (selectedStatuses.length) params.set('conservation_status', selectedStatuses.join(','));
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -145,10 +201,12 @@ const MapScreen = () => {
       const list = Array.isArray(data?.locations) ? data.locations : [];
       // Keep only items with valid coordinates
       const withCoords = list.filter((loc) => loc?.coordinates && typeof loc.coordinates.lat === 'number' && typeof loc.coordinates.lon === 'number');
-      setLocations(withCoords);
+      const filteredCoords = selFamilies.length > 1 ? withCoords.filter((loc) => selFamilies.includes(loc?.plant?.family)) : withCoords;
+      setLocations(filteredCoords);
+      setResultsCount(filteredCoords.length);
 
-      // Auto-fit region to include all markers for better visibility
-      if (withCoords.length > 0) {
+      // Auto-fit once to include all markers, unless user has interacted
+      if (withCoords.length > 0 && !hasUserInteracted && !hasAutoFitted) {
         const lats = withCoords.map((loc) => loc.coordinates.lat);
         const lons = withCoords.map((loc) => loc.coordinates.lon);
         const minLat = Math.min(...lats);
@@ -166,13 +224,15 @@ const MapScreen = () => {
           latitudeDelta: latSpan * paddingFactor,
           longitudeDelta: lonSpan * paddingFactor,
         };
+        if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
+          mapRef.current.animateToRegion(nextRegion, 600);
+        }
         setMapRegion(nextRegion);
+        setHasAutoFitted(true);
       }
     } catch (err) {
       console.error('Error fetching locations:', err);
-      setMarkersError(err.message || 'Failed to fetch locations');
     } finally {
-      setMarkersLoading(false);
     }
   };
 
@@ -184,7 +244,7 @@ const MapScreen = () => {
   // Refetch markers when filters change
   useEffect(() => {
     fetchLocations();
-  }, [filterFamily, filterStatuses, filterStartDate, filterEndDate]);
+  }, [filterFamilies, filterStatuses, filterStartDate, filterEndDate]);
 
   useEffect(() => {
     if (showHeatmap && mapRegion) {
@@ -206,6 +266,31 @@ const MapScreen = () => {
     );
   };
 
+  const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
+  const computeCardPosition = (pt, dims, layout) => {
+    const pad = 12;
+    const safeLeft = clamp((pt?.x ?? layout.width / 2) + pad, pad, Math.max(pad, layout.width - dims.width - pad));
+    const safeTop = clamp((pt?.y ?? layout.height / 2) - dims.height - pad, pad, Math.max(pad, layout.height - dims.height - pad));
+    return { left: safeLeft, top: safeTop };
+  };
+
+  const showCardAfterCenter = async (loc, mapped) => {
+    let pt = null;
+    try {
+      if (mapRef.current && typeof mapRef.current.pointForCoordinate === 'function') {
+        pt = await mapRef.current.pointForCoordinate({ latitude: loc.coordinates.lat, longitude: loc.coordinates.lon });
+      }
+    } catch (e) {
+      pt = { x: mapLayout.width / 2, y: mapLayout.height / 2 };
+    }
+    setLastPinPoint(pt);
+    const pos = computeCardPosition(pt, cardDims, mapLayout);
+    setCardPosition(pos);
+    setSelectedPlant(mapped);
+    setShowPlantCard(true);
+    setPendingSelection(null);
+  };
+
   const handleLocationPress = (loc) => {
     // Map backend location to card-friendly shape
     const mapped = {
@@ -216,8 +301,22 @@ const MapScreen = () => {
       observationId: loc.observation_id,
       coordinates: loc.coordinates,
     };
-    setSelectedPlant(mapped);
-    setShowPlantCard(true);
+    // Hide any existing card while we move the map
+    setShowPlantCard(false);
+    setSelectedPlant(null);
+    setHasUserInteracted(true);
+    setPendingSelection({ loc, mapped });
+
+    const nextRegion = {
+      latitude: loc.coordinates.lat,
+      longitude: loc.coordinates.lon,
+      latitudeDelta: mapRegion?.latitudeDelta ?? 0.02,
+      longitudeDelta: mapRegion?.longitudeDelta ?? 0.02,
+    };
+    if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
+      mapRef.current.animateToRegion(nextRegion, 350);
+    }
+    setMapRegion(nextRegion);
   };
 
   const closePlantCard = () => {
@@ -240,10 +339,11 @@ const MapScreen = () => {
   };
 
   const clearFilters = () => {
-    setFilterFamily('');
+    setFilterFamilies([]);
     setFilterStatuses([]);
     setFilterStartDate('');
     setFilterEndDate('');
+    setDatePreset(null);
     setFilterError(null);
   };
 
@@ -268,6 +368,101 @@ const MapScreen = () => {
     // or by the useEffect watching showHeatmap and mapRegion
   };
 
+  // Quick date range presets
+  const applyDatePreset = (preset) => {
+    setFilterError(null);
+    const today = new Date();
+    let start = null;
+    let end = null;
+    switch (preset) {
+      case 'today':
+        start = today;
+        end = today;
+        break;
+      case 'last7': {
+        end = today;
+        start = new Date(today);
+        start.setDate(today.getDate() - 6);
+        break;
+      }
+      case 'last30': {
+        end = today;
+        start = new Date(today);
+        start.setDate(today.getDate() - 29);
+        break;
+      }
+      case 'last90': {
+        end = today;
+        start = new Date(today);
+        start.setDate(today.getDate() - 89);
+        break;
+      }
+      case 'thisMonth': {
+        end = today;
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        break;
+      }
+      default:
+        return;
+    }
+    setFilterStartDate(formatDateISO(start));
+    setFilterEndDate(formatDateISO(end));
+    setDatePreset(preset);
+  };
+
+  // Family dropdown helpers
+  const openFamilyDropdown = () => {
+    setTempFilterFamilies(filterFamilies);
+    setFamilyDropdownVisible(true);
+    AccessibilityInfo.announceForAccessibility?.('Select plant families.');
+  };
+  const closeFamilyDropdown = () => {
+    setFamilyDropdownVisible(false);
+  };
+  const toggleTempFamily = (fam) => {
+    setTempFilterFamilies((prev) => {
+      if (prev.includes(fam)) return prev.filter((f) => f !== fam);
+      return [...prev, fam];
+    });
+  };
+  const confirmFamilySelection = () => {
+    setFilterFamilies(tempFilterFamilies);
+    setFamilyDropdownVisible(false);
+  };
+  const clearAllFamilies = () => {
+    setTempFilterFamilies([]);
+  };
+  const removeFamily = (fam) => {
+    setFilterFamilies((prev) => prev.filter((f) => f !== fam));
+  };
+
+  const removeStatus = (status) => {
+    setFilterStatuses((prev) => prev.filter((s) => s !== status));
+  };
+
+  // Fetch all families once for dropdown options
+  const fetchFamilyOptions = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/map/locations/public`);
+      if (!res.ok) throw new Error('Family options fetch failed');
+      const data = await res.json();
+      const list = Array.isArray(data?.locations) ? data.locations : [];
+      const families = Array.from(new Set(list.map((loc) => (loc?.plant?.family || '').trim()).filter(Boolean))).sort();
+      setFamilyOptions(families);
+    } catch (err) {
+      console.warn('Unable to load family options:', err?.message || err);
+      // Fallback: derive from current locations if available
+      setFamilyOptions((prev) => {
+        const families = Array.from(new Set(locations.map((loc) => (loc?.plant?.family || '').trim()).filter(Boolean))).sort();
+        return families.length ? families : prev;
+      });
+    }
+  };
+
+  useEffect(() => {
+    fetchFamilyOptions();
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
@@ -275,57 +470,98 @@ const MapScreen = () => {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.searchContainer}>
-          <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
             placeholder="Search plants or locations"
             value={searchText}
             onChangeText={setSearchText}
           />
+          <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
         </View>
       </View>
 
       {/* Title Section */}
       <View style={styles.titleSection}>
         <Text style={styles.appTitle}>Plant Map</Text>
-        <TouchableOpacity style={styles.filterToggle} onPress={() => setFilterVisible(!filterVisible)}>
-          <Text style={styles.filterIcon}>⚙️</Text>
+        <TouchableOpacity style={styles.filterButton} onPress={() => setFilterVisible(true)}>
+          <Ionicons name="options-outline" size={18} color="#666" />
+          <Text style={styles.filterText}>Filter</Text>
         </TouchableOpacity>
       </View>
 
       {/* Applied Filters Bar */}
-      {(filterFamily || filterStatuses.length || filterStartDate || filterEndDate) && (
-        <View style={styles.filtersBar}>
+      {(filterFamilies.length || filterStatuses.length || datePreset) && (
+        <View style={styles.filtersBar} accessible accessibilityLabel="Applied filters">
           <Text style={styles.filtersLabel}>Applied Filters:</Text>
-          {filterFamily ? (
-            <View style={styles.chip}><Text style={styles.chipText}>Family: {filterFamily}</Text></View>
+          <View style={styles.chip}><Text style={styles.chipText}>Results: {resultsCount}</Text></View>
+          {datePreset ? (
+            <TouchableOpacity
+              style={styles.chip}
+              onPress={() => { setDatePreset(null); setFilterStartDate(''); setFilterEndDate(''); }}
+              accessibilityRole="button"
+              accessibilityLabel="Remove date range filter"
+            >
+              <Text style={styles.chipText}>Date Range: {(
+                {
+                  today: 'Today',
+                  last7: 'Last 7 days',
+                  last30: 'Last 30 days',
+                  last90: 'Last 90 days',
+                  thisMonth: 'This month',
+                }[datePreset]
+              )} ✕</Text>
+            </TouchableOpacity>
           ) : null}
-          {filterStatuses.map((s, i) => (
-            <View key={`chip-${s}-${i}`} style={styles.chip}><Text style={styles.chipText}>Status: {s}</Text></View>
+          {filterFamilies.map((fam, i) => (
+            <TouchableOpacity
+              key={`fam-chip-${fam}-${i}`}
+              style={styles.chip}
+              onPress={() => removeFamily(fam)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove family ${fam}`}
+            >
+              <Text style={styles.chipText}>Family: {fam} ✕</Text>
+            </TouchableOpacity>
           ))}
-          {filterStartDate ? (
-            <View style={styles.chip}><Text style={styles.chipText}>From: {filterStartDate}</Text></View>
-          ) : null}
-          {filterEndDate ? (
-            <View style={styles.chip}><Text style={styles.chipText}>To: {filterEndDate}</Text></View>
-          ) : null}
-          <TouchableOpacity style={styles.clearBtn} onPress={clearFilters}>
+          {filterStatuses.map((s, i) => (
+            <TouchableOpacity
+              key={`chip-${s}-${i}`}
+              style={styles.chip}
+              onPress={() => removeStatus(s)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove status ${s}`}
+            >
+              <Text style={styles.chipText}>Status: {s} ✕</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={styles.clearBtn} onPress={clearFilters} accessibilityRole="button" accessibilityLabel="Clear filters">
             <Text style={styles.clearBtnText}>Clear Filters</Text>
           </TouchableOpacity>
         </View>
       )}
 
       {/* Map View */}
-      <View style={styles.mapContainer}>
+      <View style={styles.mapContainer} onLayout={(e) => setMapLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
         <MapView
+          ref={mapRef}
           style={styles.map}
           initialRegion={mapRegion}
-          region={mapRegion}
           // Removed: provider={Platform.OS === 'web' ? undefined : PROVIDER_GOOGLE}
           onRegionChangeComplete={(r) => { 
             setMapRegion(r);
+            setHasUserInteracted(true);
             if (showHeatmap) { fetchHeatmapDensity(); }
+            if (pendingSelection) {
+              const targetLat = pendingSelection.loc.coordinates.lat;
+              const targetLon = pendingSelection.loc.coordinates.lon;
+              const closeEnough = Math.abs(r.latitude - targetLat) < 0.0005 && Math.abs(r.longitude - targetLon) < 0.0005;
+              if (closeEnough) {
+                // After the map centers, show the card anchored over the pin
+                showCardAfterCenter(pendingSelection.loc, pendingSelection.mapped);
+              }
+            }
           }}
+          onPanDrag={() => setHasUserInteracted(true)}
           onLongPress={(e) => {
             const { latitude, longitude } = e.nativeEvent.coordinate;
             setPinCoords({ latitude, longitude });
@@ -341,12 +577,12 @@ const MapScreen = () => {
             <Marker
               key={`loc-${loc.observation_id}-${loc.plant_id}`}
               coordinate={{ latitude: loc.coordinates.lat, longitude: loc.coordinates.lon }}
-              title={loc.plant?.common_name || 'Plant'}
-              description={loc.plant?.scientific_name || ''}
               onPress={() => handleLocationPress(loc)}
             />
           ))}
 
+          {/* Close card when tapping empty map area */}
+          
           {/* User-dropped pin */}
           {pinCoords && (
             <Marker
@@ -359,6 +595,73 @@ const MapScreen = () => {
             />
           )}
         </MapView>
+        {/* Dismiss card by tapping anywhere outside the card */}
+        {showPlantCard && (
+          <Pressable
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            onPress={closePlantCard}
+          />
+        )}
+        {showPlantCard && selectedPlant && (
+          <View
+            style={[
+              styles.plantCardOverlay,
+              { left: cardPosition.left, top: cardPosition.top, width: cardDims.width },
+            ]}
+            onLayout={(e) => {
+              const { width, height } = e.nativeEvent.layout;
+              // Update dims and re-clamp position to keep within viewport
+              if (width !== cardDims.width || height !== cardDims.height) {
+                const nextDims = { width, height };
+                setCardDims(nextDims);
+                const nextPos = computeCardPosition(lastPinPoint, nextDims, mapLayout);
+                setCardPosition(nextPos);
+              }
+            }}
+          >
+            {/* Pointer visually anchored to the tapped pin's x-position */}
+            <View
+              style={[
+                styles.cardPointer,
+                {
+                  left: clamp(
+                    ((lastPinPoint?.x ?? (cardPosition.left + cardDims.width / 2)) - cardPosition.left) - 8,
+                    10,
+                    Math.max(10, cardDims.width - 26)
+                  ),
+                },
+              ]}
+            />
+            <View style={styles.plantCard}>
+              <TouchableOpacity style={styles.closeButton} onPress={closePlantCard}>
+                <Text style={styles.closeIcon}>✕</Text>
+              </TouchableOpacity>
+              {selectedPlant && (
+                <>
+                  <View style={styles.cardHeader}>
+                    {selectedPlant.image ? (
+                      <Image source={{ uri: selectedPlant.image }} style={styles.cardImage} />
+                    ) : (
+                      <View style={styles.cardImagePlaceholder}>
+                        <Ionicons name="leaf" size={24} color="#2e7d32" />
+                      </View>
+                    )}
+                    <View style={styles.cardText}>
+                      <Text style={styles.plantCardName} numberOfLines={1}>{selectedPlant.name}</Text>
+                      <Text style={styles.plantCardScientific} numberOfLines={2}>{selectedPlant.scientificName}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.plantCardInfo}>
+                    <TouchableOpacity style={styles.viewDetailsButton} onPress={handleViewDetails}>
+                      <Text style={styles.viewDetailsText}>View Details</Text>
+                      <Text style={styles.arrowIcon}>→</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        )}
         {showHeatmap && (!densityPoints || densityPoints.length === 0) && (
           <View style={styles.legendEmpty}>
             <Text style={styles.legendTitle}>No heatmap data in view</Text>
@@ -387,17 +690,43 @@ const MapScreen = () => {
         style={styles.locationButton}
         onPress={async () => {
           try {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') return;
-            const loc = await Location.getCurrentPositionAsync({});
-            const region = {
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
+            let perm = await Location.getForegroundPermissionsAsync();
+            if (perm.status !== 'granted') {
+              const req = await Location.requestForegroundPermissionsAsync();
+              if (req.status !== 'granted') return;
+            }
+            const last = await Location.getLastKnownPositionAsync();
+            const accuracy = Platform.OS === 'android' ? Location.Accuracy.Balanced : Location.Accuracy.High;
+            let loc = null;
+            if (last) {
+              const regionA = {
+                latitude: last.coords.latitude,
+                longitude: last.coords.longitude,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+              };
+              if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
+                mapRef.current.animateToRegion(regionA, 600);
+              }
+              setMapRegion(regionA);
+              setPinCoords({ latitude: regionA.latitude, longitude: regionA.longitude });
+            }
+            try {
+              loc = await withTimeout(Location.getCurrentPositionAsync({ accuracy }), 6000);
+            } catch (e) {}
+            const final = loc || last;
+            if (!final) return;
+            const regionB = {
+              latitude: final.coords.latitude,
+              longitude: final.coords.longitude,
               latitudeDelta: 0.02,
               longitudeDelta: 0.02,
             };
-            setMapRegion(region);
-            setPinCoords({ latitude: region.latitude, longitude: region.longitude });
+            if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
+              mapRef.current.animateToRegion(regionB, 600);
+            }
+            setMapRegion(regionB);
+            setPinCoords({ latitude: regionB.latitude, longitude: regionB.longitude });
           } catch (err) {
             console.warn('Failed to recenter:', err?.message || err);
           }
@@ -435,101 +764,156 @@ const MapScreen = () => {
       {/* Filters Modal */}
       <Modal
         visible={filterVisible}
-        transparent={false}
+        transparent={true}
         animationType="slide"
         onRequestClose={() => setFilterVisible(false)}
       >
-        <ScrollView contentContainerStyle={styles.modalContainer}>
-          <Text style={styles.sectionTitle}>Filters</Text>
-          {filterError && (
-            <View style={styles.errorContainer}><Text style={styles.errorText}>{filterError}</Text></View>
-          )}
-          <View style={styles.dataContainer}>
-            <Text style={styles.label}>Plant Family</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Myrtaceae"
-              value={filterFamily}
-              onChangeText={setFilterFamily}
-              autoCapitalize="none"
-            />
-          </View>
-          <View style={styles.dataContainer}>
-            <Text style={styles.label}>Conservation Status</Text>
-            <View style={styles.statusRow}>
-              {ALL_STATUSES.map((s) => (
-                <TouchableOpacity
-                  key={`opt-${s}`}
-                  onPress={() => toggleStatus(s)}
-                  style={[styles.statusChip, filterStatuses.includes(s) ? styles.statusChipActive : null]}
-                >
-                  <Text style={[styles.statusChipText, filterStatuses.includes(s) ? styles.statusChipTextActive : null]}>{s}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-          <View style={styles.dataContainer}>
-            <Text style={styles.label}>Start Date (YYYY-MM-DD)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="YYYY-MM-DD"
-              value={filterStartDate}
-              onChangeText={setFilterStartDate}
-              autoCapitalize="none"
-            />
-          </View>
-          <View style={styles.dataContainer}>
-            <Text style={styles.label}>End Date (YYYY-MM-DD)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="YYYY-MM-DD"
-              value={filterEndDate}
-              onChangeText={setFilterEndDate}
-              autoCapitalize="none"
-            />
-          </View>
-          <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.applyBtn} onPress={applyFilters}>
-              <Text style={styles.applyBtnText}>Apply</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setFilterVisible(false)}>
-              <Text style={styles.cancelBtnText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </Modal>
-
-      {/* Plant Card Modal */}
-      <Modal
-        visible={showPlantCard}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={closePlantCard}
-      >
         <View style={styles.modalOverlay}>
-          <View style={styles.plantCard}>
-            <TouchableOpacity style={styles.closeButton} onPress={closePlantCard}>
-              <Text style={styles.closeIcon}>✕</Text>
-            </TouchableOpacity>
-            
-            {selectedPlant && (
-              <>
-                {/* Use the Image component generally, the source is a URI */}
-                <Image source={{ uri: selectedPlant.image }} style={styles.plantCardImage} />
-                <View style={styles.plantCardInfo}>
-                  <Text style={styles.plantCardName}>{selectedPlant.name}</Text>
-                  <Text style={styles.plantCardScientific}>{selectedPlant.scientificName}</Text>
-                  
-                  <TouchableOpacity style={styles.viewDetailsButton} onPress={handleViewDetails}>
-                    <Text style={styles.viewDetailsText}>View Details</Text>
-                    <Text style={styles.arrowIcon}>→</Text>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filters</Text>
+              <TouchableOpacity onPress={() => setFilterVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              {filterError && (
+                <View style={styles.errorContainer}><Text style={styles.errorText}>{filterError}</Text></View>
+              )}
+              <View style={styles.dataContainer}>
+                <Text style={styles.inputLabel}>Plant Family</Text>
+                <TouchableOpacity
+                  style={styles.textInput}
+                  onPress={openFamilyDropdown}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open plant family selector"
+                >
+                  <Text>
+                    {filterFamilies.length
+                      ? `${filterFamilies.length} selected`
+                      : 'Select plant families'}
+                  </Text>
+                </TouchableOpacity>
+                {filterFamilies.length ? (
+                  <View style={styles.statusRow}>
+                    {filterFamilies.map((fam, i) => (
+                      <TouchableOpacity
+                        key={`fam-sel-${fam}-${i}`}
+                        style={styles.statusChip}
+                        onPress={() => removeFamily(fam)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Deselect ${fam}`}
+                      >
+                        <Text style={styles.statusChipText}>{fam} ✕</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+
+              {/* Family Multi-Select Modal */}
+              <Modal
+                visible={familyDropdownVisible}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={closeFamilyDropdown}
+              >
+                <View style={styles.modalOverlay}>
+                  <View style={styles.modalContent}>
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle}>Select Plant Families</Text>
+                      <TouchableOpacity onPress={closeFamilyDropdown}>
+                        <Ionicons name="close" size={24} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView style={styles.modalBody}>
+                      <View style={styles.dataContainer}>
+                        {familyOptions.length === 0 ? (
+                          <Text>No family options available.</Text>
+                        ) : familyOptions.map((fam) => {
+                          const selected = tempFilterFamilies.includes(fam);
+                          return (
+                            <TouchableOpacity
+                              key={`fam-opt-${fam}`}
+                              onPress={() => toggleTempFamily(fam)}
+                              style={[styles.statusChip, selected ? styles.statusChipActive : null]}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: selected }}
+                              accessibilityLabel={fam}
+                            >
+                              <Text style={[styles.statusChipText, selected ? styles.statusChipTextActive : null]}>
+                                {fam}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity style={styles.cancelButton} onPress={clearAllFamilies} accessibilityRole="button" accessibilityLabel="Clear all selected families">
+                        <Text style={styles.cancelButtonText}>Clear Selection</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.saveButton} onPress={confirmFamilySelection} accessibilityRole="button" accessibilityLabel="Apply selected families">
+                        <Text style={styles.saveButtonText}>Save</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </Modal>
+
+              <View style={styles.dataContainer}>
+                <Text style={styles.inputLabel}>Conservation Status</Text>
+                <View style={styles.statusRow}>
+                  {ALL_STATUSES.map((s) => (
+                    <TouchableOpacity
+                      key={`opt-${s}`}
+                      onPress={() => toggleStatus(s)}
+                      style={[styles.statusChip, filterStatuses.includes(s) ? styles.statusChipActive : null]}
+                    >
+                      <Text style={[styles.statusChipText, filterStatuses.includes(s) ? styles.statusChipTextActive : null]}>{s}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.dataContainer}>
+                <Text style={styles.inputLabel}>Quick Date Ranges</Text>
+                <View style={styles.statusRow}>
+                  <TouchableOpacity onPress={() => applyDatePreset('today')} style={[styles.statusChip, datePreset === 'today' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select today">
+                    <Text style={[styles.statusChipText, datePreset === 'today' ? styles.statusChipTextActive : null]}>Today</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => applyDatePreset('last7')} style={[styles.statusChip, datePreset === 'last7' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select last 7 days">
+                    <Text style={[styles.statusChipText, datePreset === 'last7' ? styles.statusChipTextActive : null]}>Last 7 days</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => applyDatePreset('last30')} style={[styles.statusChip, datePreset === 'last30' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select last 30 days">
+                    <Text style={[styles.statusChipText, datePreset === 'last30' ? styles.statusChipTextActive : null]}>Last 30 days</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => applyDatePreset('last90')} style={[styles.statusChip, datePreset === 'last90' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select last 90 days">
+                    <Text style={[styles.statusChipText, datePreset === 'last90' ? styles.statusChipTextActive : null]}>Last 90 days</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => applyDatePreset('thisMonth')} style={[styles.statusChip, datePreset === 'thisMonth' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select this month">
+                    <Text style={[styles.statusChipText, datePreset === 'thisMonth' ? styles.statusChipTextActive : null]}>This month</Text>
                   </TouchableOpacity>
                 </View>
-              </>
-            )}
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelButton} onPress={clearFilters}>
+                <Text style={styles.cancelButtonText}>Clear Filters</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveButton} onPress={applyFilters}>
+                <Text style={styles.saveButtonText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
+
+      {/* Plant Card anchored overlay is rendered inside mapContainer above */}
     </SafeAreaView>
   );
 };
@@ -554,20 +938,19 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f1f3f4',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-  },
-  searchIcon: {
-    marginRight: 8,
-    fontSize: 16,
+    position: 'relative',
   },
   searchInput: {
-    flex: 1,
+    backgroundColor: '#f1f3f4',
+    borderRadius: 12,
+    paddingHorizontal: 40,
     paddingVertical: 12,
     fontSize: 16,
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: 12,
+    top: 12,
   },
   titleSection: {
     flexDirection: 'row',
@@ -580,6 +963,21 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: '#2e7d32',
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  filterText: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 6,
   },
   filterToggle: {
     padding: 8,
@@ -611,16 +1009,18 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   chip: {
-    backgroundColor: '#f1f3f4',
-    paddingHorizontal: 10,
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
     marginRight: 8,
     marginBottom: 8,
   },
   chipText: {
     fontSize: 13,
-    color: '#333',
+    color: '#666',
   },
   clearBtn: {
     backgroundColor: '#e8f5e9',
@@ -698,32 +1098,68 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     maxWidth: 220,
   },
-  markersContainer: {
+  plantCardOverlay: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  marker: {
-    position: 'absolute',
-    backgroundColor: '#ffffff',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    zIndex: 1000,
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
   },
-  markerIcon: {
-    fontSize: 20,
+  cardPointer: {
+    position: 'absolute',
+    bottom: -8,
+    width: 16,
+    height: 16,
+    backgroundColor: '#ffffff',
+    borderColor: '#ddd',
+    borderWidth: 1,
+    transform: [{ rotate: '45deg' }],
+    borderRadius: 2,
   },
   modalContainer: {
     padding: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 640,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  modalBody: {
+    padding: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    gap: 12,
   },
   sectionTitle: {
     fontSize: 22,
@@ -750,6 +1186,12 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 6,
   },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 8,
+  },
   input: {
     backgroundColor: '#f1f3f4',
     borderRadius: 8,
@@ -757,29 +1199,41 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 16,
   },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    backgroundColor: '#ffffff',
+  },
   statusRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
   statusChip: {
-    backgroundColor: '#f1f3f4',
+    backgroundColor: '#f8f9fa',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
     marginRight: 8,
     marginBottom: 8,
   },
   statusChipActive: {
-    backgroundColor: '#c8e6c9',
+    backgroundColor: '#e8f5e8',
+    borderColor: '#2e7d32',
   },
   statusChipText: {
     fontSize: 14,
-    color: '#333',
+    color: '#666',
   },
   statusChipTextActive: {
-    color: '#1b5e20',
-    fontWeight: '700',
+    color: '#2e7d32',
+    fontWeight: '600',
   },
   actionsRow: {
     flexDirection: 'row',
@@ -795,6 +1249,29 @@ const styles = StyleSheet.create({
   applyBtnText: {
     color: '#ffffff',
     fontWeight: '700',
+    fontSize: 16,
+  },
+  cancelButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  saveButton: {
+    backgroundColor: '#2e7d32',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 6,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontWeight: '600',
     fontSize: 16,
   },
   cancelBtn: {
@@ -827,17 +1304,11 @@ const styles = StyleSheet.create({
   locationIcon: {
     fontSize: 20,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
   plantCard: {
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '70%',
+    borderRadius: 16,
+    padding: 14,
+    minWidth: 220,
   },
   closeButton: {
     alignSelf: 'flex-end',
@@ -847,43 +1318,56 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#666',
   },
-  plantCardImage: {
-    width: '100%',
-    height: 200,
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
+  },
+  cardImage: {
+    width: 56,
+    height: 56,
     borderRadius: 12,
-    marginBottom: 16,
+    backgroundColor: '#f1f3f4',
+  },
+  cardImagePlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: '#f1f3f4',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardText: {
+    flex: 1,
   },
   plantCardInfo: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 2,
   },
   plantCardName: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 4,
   },
   plantCardScientific: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
     fontStyle: 'italic',
     marginBottom: 8,
-  },
-  plantCardDistance: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 20,
   },
   viewDetailsButton: {
     backgroundColor: '#2e7d32',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 10,
+    borderRadius: 20,
+    paddingHorizontal: 16,
   },
   viewDetailsText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     marginRight: 8,
   },
