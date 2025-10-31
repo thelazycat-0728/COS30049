@@ -36,6 +36,16 @@ const AdminScreen = () => {
 
   // Mock data based on your screenshots
   const [plants, setPlants] = useState([]);
+// Plants pagination (server-side)
+const [plantsPage, setPlantsPage] = useState(1);
+const PLANTS_PAGE_SIZE = 10;
+const [plantsTotal, setPlantsTotal] = useState(0);
+const totalPlantPages = useMemo(() => Math.max(1, Math.ceil(plantsTotal / PLANTS_PAGE_SIZE)), [plantsTotal]);
+useEffect(() => {
+  if (plantsPage > totalPlantPages) {
+    setPlantsPage(totalPlantPages);
+  }
+}, [plantsPage, totalPlantPages]);
   const [alerts, setAlerts] = useState([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsError, setAlertsError] = useState(null);
@@ -175,7 +185,10 @@ const AdminScreen = () => {
     })();
   }, []);
 
-
+  // Refetch plants when page changes
+  useEffect(() => {
+    fetchPlants();
+  }, [plantsPage]);
 
   // Poll training status when training is active
   useEffect(() => {
@@ -456,7 +469,8 @@ const loadMockData = () => { /* no-op */ };
   const fetchPlants = async () => {
     try {
       const token = await getAuthToken();
-      const res = await fetch(`${API_URL}/admin/plants`, {
+      const params = new URLSearchParams({ page: String(plantsPage), size: String(PLANTS_PAGE_SIZE) });
+      const res = await fetch(`${API_URL}/admin/plants?${params.toString()}`, {
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -465,6 +479,7 @@ const loadMockData = () => { /* no-op */ };
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
       const list = Array.isArray(data.plants) ? data.plants : [];
+      setPlantsTotal(Number(data.total || 0));
       // Map backend rows to UI structure
       const mapped = list.map(row => ({
         id: row.plant_id,
@@ -1096,6 +1111,28 @@ const loadMockData = () => { /* no-op */ };
             <Ionicons name="leaf-outline" size={48} color="#ccc" />
             <Text style={styles.emptyStateText}>No plants added yet</Text>
             <Text style={styles.emptyStateSubtext}>Add your first plant to get started</Text>
+          </View>
+        )}
+
+        {plants.length > 0 && (
+          <View style={styles.paginationBar}>
+            <TouchableOpacity
+              style={[styles.pageButton, plantsPage <= 1 && styles.disabledButton]}
+              onPress={() => plantsPage > 1 && setPlantsPage(plantsPage - 1)}
+              disabled={plantsPage <= 1}
+            >
+              <Ionicons name="chevron-back" size={18} color={plantsPage <= 1 ? '#fff' : '#2e7d32'} />
+              <Text style={[styles.pageButtonText, plantsPage <= 1 && styles.pageButtonTextDisabled]}>Prev</Text>
+            </TouchableOpacity>
+            <Text style={styles.pageIndicator}>Page {plantsPage} of {totalPlantPages}</Text>
+            <TouchableOpacity
+              style={[styles.pageButton, plantsPage >= totalPlantPages && styles.disabledButton]}
+              onPress={() => plantsPage < totalPlantPages && setPlantsPage(plantsPage + 1)}
+              disabled={plantsPage >= totalPlantPages}
+            >
+              <Text style={[styles.pageButtonText, plantsPage >= totalPlantPages && styles.pageButtonTextDisabled]}>Next</Text>
+              <Ionicons name="chevron-forward" size={18} color={plantsPage >= totalPlantPages ? '#fff' : '#2e7d32'} />
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -3209,6 +3246,38 @@ const styles = StyleSheet.create({
   },
   contentScroll: {
     flex: 1,
+  },
+  paginationBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    marginTop: 8,
+  },
+  pageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e8f5e8',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#2e7d32',
+    gap: 6,
+  },
+  pageButtonText: {
+    color: '#2e7d32',
+    fontWeight: '600',
+  },
+  pageButtonTextDisabled: {
+    color: '#fff',
+  },
+  pageIndicator: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
   chip: {
     backgroundColor: '#f8f9fa',

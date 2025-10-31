@@ -13,12 +13,38 @@ const CONSERVATION_STATUSES = [
 class PlantController {
   static async getAll(req, res) {
     try {
+      // Parse pagination params: support limit/offset or page/size
+      const sizeQ = req.query.limit ?? req.query.size;
+      const pageQ = req.query.page;
+      const offsetQ = req.query.offset;
+
+      let size = Number(sizeQ);
+      if (!Number.isFinite(size) || size <= 0) size = 10;
+      if (size > 100) size = 100;
+
+      let offset = Number(offsetQ);
+      if (!Number.isFinite(offset) || offset < 0) {
+        const pageNum = Number(pageQ);
+        if (Number.isFinite(pageNum) && pageNum > 0) offset = (pageNum - 1) * size; else offset = 0;
+      }
+
+      // Query total count
+      const [[countRow]] = await pool.execute('SELECT COUNT(*) AS total FROM Plants');
+      const total = countRow?.total ?? 0;
+
+      // Fetch current page
       const [rows] = await pool.execute(
         `SELECT plant_id, scientific_name, species, common_name, family, description, conservation_status, image_url, created_at, updated_at
          FROM Plants
-         ORDER BY created_at DESC`
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?`,
+        [size, offset]
       );
-      res.json({ success: true, plants: rows });
+
+      // Derive page index if not provided
+      const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 ? Number(pageQ) : Math.floor(offset / size) + 1;
+
+      res.json({ success: true, plants: rows, total, page: currentPage, size });
     } catch (err) {
       console.error('Error fetching plants:', err);
       res.status(500).json({ success: false, error: 'Failed to fetch plants' });
