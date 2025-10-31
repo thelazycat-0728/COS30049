@@ -9,47 +9,108 @@ class ObservationController {
    */
   static async getAll(req, res) {
     try {
-      const {
-        page = 1,
-        limit = 10,
-        plantId,
-        status,
-        userId,
-        start_date,
-        end_date,
-        public: pub,
-        conservation_status,
-      } = req.query;
+      // Parse pagination params: support limit/offset or page/size (following plantController pattern)
+      const sizeQ = req.query.limit ?? req.query.size;
+      const pageQ = req.query.page;
+      const offsetQ = req.query.offset;
 
-      const filters = {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        status: status,
-        plantId: plantId,
-        userId: userId,
-        startDate: start_date,
-        endDate: end_date,
-        public: typeof pub !== 'undefined' ? (pub === '1' || pub === 1 || pub === true ? 1 : 0) : undefined,
-        conservationStatus: conservation_status || undefined, // comma-separated supported
-      };
+      // Parse filter parameters
+      const statusFilter = req.query.status;
+      const publicFilter = req.query.public;
+      const conservationStatusFilter = req.query.conservation_status;
 
-      // Get observations
-      let observations = await Observation.findAll(filters);
+      // Validate and set size (limit)
+      let size = Number(sizeQ);
+      if (!Number.isFinite(size) || size <= 0) size = 10;
+      if (size > 100) size = 100;
 
-      // Get total count
-      const total = await Observation.countAll(filters);
+      // Validate and set offset
+      let offset = Number(offsetQ);
+      if (!Number.isFinite(offset) || offset < 0) {
+        const pageNum = Number(pageQ);
+        if (Number.isFinite(pageNum) && pageNum > 0) {
+          offset = (pageNum - 1) * size;
+        } else {
+          offset = 0;
+        }
+      }
 
-      
+      // Build base SQL query with filters
+      let baseQuery = `
+        FROM PlantObservations po 
+        JOIN Plants p ON p.plant_id = po.plant_id 
+        JOIN Users u ON u.user_id = po.user_id 
+        WHERE 1=1
+      `;
+      const queryParams = [];
+
+      // Add status filter
+      if (statusFilter) {
+        baseQuery += ` AND po.status = ?`;
+        queryParams.push(statusFilter);
+      }
+
+      // Add public filter
+      if (publicFilter !== undefined) {
+        const publicValue = (publicFilter === '1' || publicFilter === 1 || publicFilter === true) ? 1 : 0;
+        baseQuery += ` AND po.public = ?`;
+        queryParams.push(publicValue);
+      }
+
+      // Add conservation status filter (supports comma-separated values)
+      if (conservationStatusFilter) {
+        const statuses = conservationStatusFilter.split(',').map(s => s.trim()).filter(s => s);
+        if (statuses.length > 0) {
+          baseQuery += ` AND p.conservation_status IN (${statuses.map(() => '?').join(',')})`;
+          queryParams.push(...statuses);
+        }
+      }
+
+      // Query total count
+      const countQuery = `SELECT COUNT(*) AS total ${baseQuery}`;
+      const [countRows] = await pool.execute(countQuery, queryParams);
+      const total = countRows[0]?.total ?? 0;
+
+      // Build main query with sorting and pagination
+      let mainQuery = `
+        SELECT 
+          po.observation_id, 
+          po.user_id, 
+          po.plant_id, 
+          po.image_url, 
+          po.latitude, 
+          po.longitude, 
+          po.observation_date, 
+          po.confidence_score, 
+          po.status, 
+          po.public, 
+          po.created_at, 
+          po.updated_at,
+          p.common_name,
+          p.scientific_name,
+          p.family,
+          p.description,
+          p.conservation_status,
+          u.username
+        ${baseQuery}
+        ORDER BY po.created_at DESC
+        LIMIT ? OFFSET ?
+      `;
+
+      // Execute main query
+      const [observations] = await pool.execute(mainQuery, [...queryParams, size, offset]);
+
+      // Derive current page if not provided
+      const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 
+        ? Number(pageQ) 
+        : Math.floor(offset / size) + 1;
 
       res.json({
         success: true,
         observations,
-        pagination: {
-          page: filters.page,
-          limit: filters.limit,
-          total,
-          totalPages: Math.ceil(total / filters.limit),
-        },
+        total,
+        page: currentPage,
+        size,
       });
     } catch (error) {
       console.error("Get observations error:", error);
@@ -76,8 +137,6 @@ class ObservationController {
           error: "Observation not found",
         });
       }
-
-      
 
       res.json({
         success: true,

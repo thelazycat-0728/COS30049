@@ -1,5 +1,6 @@
 const Sensor = require("../models/Sensor");
 const SensorData = require("../models/SensorData");
+const pool = require('../config/database');
 
 class SensorController {
   /**
@@ -8,32 +9,41 @@ class SensorController {
    */
   async registerSensor(req, res) {
     try {
-      const { name, location, status } = req.body;
+      const { sensor_name, location_description, status, observation_id } = req.body;
 
       // Validation
-      if (!name || !location) {
+      if (!sensor_name || !location_description) {
         return res.status(400).json({
           success: false,
-          error: "Sensor name and sensor location are required",
+          error: "Sensor name and location description are required",
         });
       }
 
       // Sanitize inputs
-      const cleanName = String(name).trim();
-      const cleanLocation = String(location).trim();
+      const cleanName = String(sensor_name).trim();
+      const cleanLocation = String(location_description).trim();
 
       if (cleanName.length === 0 || cleanLocation.length === 0) {
         return res.status(400).json({
           success: false,
-          error: "Sensor name and sensor location cannot be empty",
+          error: "Sensor name and location description cannot be empty",
         });
       }
 
-      // Create sensor
-      const sensor = await Sensor.create(cleanName, cleanLocation, status);
+      // Validate status if provided
+      const validStatuses = ['active', 'inactive', 'maintenance'];
+      const sensorStatus = status && validStatuses.includes(status) ? status : 'active';
+
+      // Create sensor - updated to match table schema
+      const sensor = await Sensor.create({
+        sensor_name: cleanName,
+        location_description: cleanLocation,
+        status: sensorStatus,
+        observation_id: observation_id || null
+      });
 
       console.log(
-        `✅ Sensor registered: ${sensor.sensorId} by user ${req.user.id}`
+        `✅ Sensor registered: ${sensor.sensor_id} by user ${req.user.id}`
       );
 
       return res.status(201).json({
@@ -64,16 +74,57 @@ class SensorController {
    */
   async getAllSensors(req, res) {
     try {
-      let sensors;
+      // Parse pagination params
+      const sizeQ = req.query.limit ?? req.query.size;
+      const pageQ = req.query.page;
+      const offsetQ = req.query.offset;
 
-      const limit = Math.min(parseInt(req.query.limit || "100", 10), 1000);
-      const offset = Math.max(parseInt(req.query.offset || "0", 10), 0);
-      sensors = await Sensor.findAll(limit, offset);
+      // Validate and set size (limit)
+      let size = Number(sizeQ);
+      if (!Number.isFinite(size) || size <= 0) size = 10;
+      if (size > 100) size = 100;
+
+      // Validate and set offset
+      let offset = Number(offsetQ);
+      if (!Number.isFinite(offset) || offset < 0) {
+        const pageNum = Number(pageQ);
+        if (Number.isFinite(pageNum) && pageNum > 0) {
+          offset = (pageNum - 1) * size;
+        } else {
+          offset = 0;
+        }
+      }
+
+      // Query total count
+      const [[countRow]] = await pool.execute('SELECT COUNT(*) AS total FROM IoTSensors');
+      const total = countRow?.total ?? 0;
+
+      // Fetch current page - updated to match table schema
+      const [rows] = await pool.execute(
+        `SELECT 
+          sensor_id, 
+          sensor_name, 
+          location_description, 
+          observation_id,
+          status, 
+          last_checked, 
+          created_at, 
+          updated_at
+         FROM IoTSensors
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?`,
+        [size, offset]
+      );
+
+      // Derive current page if not provided
+      const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 ? Number(pageQ) : Math.floor(offset / size) + 1;
 
       return res.json({
         success: true,
-        count: sensors.length,
-        sensors,
+        sensors: rows,
+        total,
+        page: currentPage,
+        size,
       });
     } catch (error) {
       console.error("❌ Get all sensors error:", error);
@@ -90,8 +141,32 @@ class SensorController {
    */
   async getSensorById(req, res) {
     try {
-      const sensorId = String(req.params.id);
-      const sensor = await Sensor.findBySensorId(sensorId);
+      const sensorId = parseInt(req.params.id);
+      
+      if (isNaN(sensorId)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid sensor ID",
+        });
+      }
+
+      // Updated to use direct query matching table schema
+      const [sensors] = await pool.execute(
+        `SELECT 
+          sensor_id, 
+          sensor_name, 
+          location_description, 
+          observation_id,
+          status, 
+          last_checked, 
+          created_at, 
+          updated_at
+         FROM IoTSensors 
+         WHERE sensor_id = ?`,
+        [sensorId]
+      );
+
+      const sensor = sensors[0];
 
       if (!sensor) {
         return res.status(404).json({
@@ -100,12 +175,8 @@ class SensorController {
         });
       }
 
-      // Check authorization
-      if (
-        req.user.role !== "admin" &&
-        req.user.role !== "expert" &&
-        sensor.ownerId !== req.user.id
-      ) {
+      // Check authorization - updated to match your schema (no ownerId field)
+      if (req.user.role !== "admin" && req.user.role !== "expert") {
         return res.status(403).json({
           success: false,
           error: "Access denied",
@@ -131,19 +202,69 @@ class SensorController {
    */
   async updateSensor(req, res) {
     try {
-      const sensorId = String(req.params.id);
-      const { name, location, status } = req.body;
+      const sensorId = parseInt(req.params.id);
+      const { sensor_name, location_description, status, observation_id } = req.body;
+
+      if (isNaN(sensorId)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid sensor ID",
+        });
+      }
 
       // Check if sensor exists
-      const sensor = await Sensor.findBySensorId(sensorId);
-      if (!sensor) {
+      const [sensors] = await pool.execute(
+        'SELECT sensor_id FROM IoTSensors WHERE sensor_id = ?',
+        [sensorId]
+      );
+
+      if (sensors.length === 0) {
         return res.status(404).json({
           success: false,
           error: "Sensor not found",
         });
       }
 
-      await Sensor.update({ name, location, status }, sensorId);
+      // Build update query dynamically based on provided fields
+      const updateFields = [];
+      const updateValues = [];
+
+      if (sensor_name !== undefined) {
+        updateFields.push('sensor_name = ?');
+        updateValues.push(String(sensor_name).trim());
+      }
+
+      if (location_description !== undefined) {
+        updateFields.push('location_description = ?');
+        updateValues.push(String(location_description).trim());
+      }
+
+      if (status !== undefined) {
+        const validStatuses = ['active', 'inactive', 'maintenance'];
+        if (validStatuses.includes(status)) {
+          updateFields.push('status = ?');
+          updateValues.push(status);
+        }
+      }
+
+      if (observation_id !== undefined) {
+        updateFields.push('observation_id = ?');
+        updateValues.push(observation_id);
+      }
+
+      if (updateFields.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "No valid fields to update",
+        });
+      }
+
+      updateValues.push(sensorId);
+
+      await pool.execute(
+        `UPDATE IoTSensors SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE sensor_id = ?`,
+        updateValues
+      );
 
       return res.json({
         success: true,
@@ -159,21 +280,35 @@ class SensorController {
     }
   }
 
-
+  /**
+   * Delete sensor
+   * @route DELETE /api/iot/sensors/:id
+   */
   async deleteSensor(req, res) {
     try {
-      const sensorId = String(req.params.id);
+      const sensorId = parseInt(req.params.id);
+
+      if (isNaN(sensorId)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid sensor ID",
+        });
+      }
 
       // Check if sensor exists
-      const sensor = await Sensor.findBySensorId(sensorId);
-      if (!sensor) {
+      const [sensors] = await pool.execute(
+        'SELECT sensor_id FROM IoTSensors WHERE sensor_id = ?',
+        [sensorId]
+      );
+
+      if (sensors.length === 0) {
         return res.status(404).json({
           success: false,
           error: "Sensor not found",
         });
       }
 
-      await Sensor.delete(sensorId);
+      await pool.execute('DELETE FROM IoTSensors WHERE sensor_id = ?', [sensorId]);
 
       return res.json({
         success: true,
@@ -181,9 +316,97 @@ class SensorController {
       });
     } catch (error) {
       console.error("❌ Delete sensor error:", error);
+
+      // Handle foreign key constraint errors
+      if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.code === 'ER_ROW_IS_REFERENCED') {
+        return res.status(409).json({
+          success: false,
+          error: "Cannot delete sensor: Sensor is referenced by other records",
+        });
+      }
+
       return res.status(500).json({
         success: false,
         error: "Failed to delete sensor",
+      });
+    }
+  }
+
+  /**
+   * Get sensors by status
+   * @route GET /api/iot/sensors/status/:status
+   */
+  async getSensorsByStatus(req, res) {
+    try {
+      const { status } = req.params;
+      const validStatuses = ['active', 'inactive', 'maintenance'];
+
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid status. Must be one of: active, inactive, maintenance",
+        });
+      }
+
+      const [sensors] = await pool.execute(
+        `SELECT 
+          sensor_id, 
+          sensor_name, 
+          location_description, 
+          observation_id,
+          status, 
+          last_checked, 
+          created_at, 
+          updated_at
+         FROM IoTSensors 
+         WHERE status = ?
+         ORDER BY sensor_name`,
+        [status]
+      );
+
+      return res.json({
+        success: true,
+        sensors,
+        total: sensors.length,
+      });
+    } catch (error) {
+      console.error("❌ Get sensors by status error:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to retrieve sensors by status",
+      });
+    }
+  }
+
+  /**
+   * Update sensor last_checked timestamp
+   * @route PATCH /api/iot/sensors/:id/checkin
+   */
+  async updateLastChecked(req, res) {
+    try {
+      const sensorId = parseInt(req.params.id);
+
+      if (isNaN(sensorId)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid sensor ID",
+        });
+      }
+
+      await pool.execute(
+        'UPDATE IoTSensors SET last_checked = CURRENT_TIMESTAMP WHERE sensor_id = ?',
+        [sensorId]
+      );
+
+      return res.json({
+        success: true,
+        message: "Sensor check-in timestamp updated successfully",
+      });
+    } catch (error) {
+      console.error("❌ Update sensor last_checked error:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to update sensor check-in timestamp",
       });
     }
   }

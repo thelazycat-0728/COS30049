@@ -1,25 +1,101 @@
 const IoTAlert = require('../models/IoTAlert');
+const pool = require('../config/database');
 
 class IoTAlertController {
- 
   async getAllAlerts(req, res) {
     try {
-      const filters = {
-        sensorId: req.query.sensorId,
-        severity: req.query.severity,
-        resolved: req.query.resolved === 'true' ? true :
-                   req.query.resolved === 'false' ? false : undefined,
-        alertType: req.query.alertType,
-        limit: Math.min(parseInt(req.query.limit || '100', 10), 1000),
-        offset: Math.max(parseInt(req.query.offset || '0', 10), 0)
-      };
+      // Parse pagination params: support limit/offset or page/size (following plantController pattern)
+      const sizeQ = req.query.limit ?? req.query.size;
+      const pageQ = req.query.page;
+      const offsetQ = req.query.offset;
 
-      const alerts = await IoTAlert.findAll(filters);
+      // Parse filter parameters
+      const severityFilter = req.query.severity;
+      const typeFilter = req.query.type;
+      const resolvedFilter = req.query.resolved;
+      const sensorIdFilter = req.query.sensorId;
+
+      // Validate and set size (limit)
+      let size = Number(sizeQ);
+      if (!Number.isFinite(size) || size <= 0) size = 10;
+      if (size > 100) size = 100;
+
+      // Validate and set offset
+      let offset = Number(offsetQ);
+      if (!Number.isFinite(offset) || offset < 0) {
+        const pageNum = Number(pageQ);
+        if (Number.isFinite(pageNum) && pageNum > 0) {
+          offset = (pageNum - 1) * size;
+        } else {
+          offset = 0;
+        }
+      }
+
+      // Build base SQL query with filters
+      let baseQuery = `FROM Alerts WHERE 1=1`;
+      const queryParams = [];
+
+      // Add severity filter
+      if (severityFilter) {
+        baseQuery += ` AND severity = ?`;
+        queryParams.push(severityFilter);
+      }
+
+      // Add type filter
+      if (typeFilter) {
+        baseQuery += ` AND alert_type = ?`;
+        queryParams.push(typeFilter);
+      }
+
+      // Add resolved filter
+      if (resolvedFilter !== undefined) {
+        const resolvedValue = (resolvedFilter === 'true' || resolvedFilter === '1' || resolvedFilter === 1) ? 1 : 0;
+        baseQuery += ` AND resolved = ?`;
+        queryParams.push(resolvedValue);
+      }
+
+      // Add sensor ID filter
+      if (sensorIdFilter) {
+        baseQuery += ` AND sensor_id = ?`;
+        queryParams.push(sensorIdFilter);
+      }
+
+      // Query total count
+      const countQuery = `SELECT COUNT(*) AS total ${baseQuery}`;
+      const [countRows] = await pool.execute(countQuery, queryParams);
+      const total = countRows[0]?.total ?? 0;
+
+      // Build main query with sorting and pagination
+      let mainQuery = `
+        SELECT 
+          alert_id,
+          sensor_id,
+          observation_id,
+          alert_type,
+          severity,
+          score,
+          description,
+          resolved,
+          created_at
+        ${baseQuery}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+      `;
+
+      // Execute main query
+      const [alerts] = await pool.execute(mainQuery, [...queryParams, size, offset]);
+
+      // Derive current page if not provided
+      const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 
+        ? Number(pageQ) 
+        : Math.floor(offset / size) + 1;
 
       return res.json({
         success: true,
-        count: alerts.length,
-        alerts
+        alerts,
+        total,
+        page: currentPage,
+        size,
       });
 
     } catch (error) {
@@ -37,11 +113,26 @@ class IoTAlertController {
    */
   async getAlertById(req, res) {
     try {
-      const alertId = String(req.params.id);
+      const alertId = req.params.id;
 
-      const alert = await IoTAlert.findByAlertId(alertId);
+      // Use direct SQL query to match the table schema
+      const [alerts] = await pool.execute(
+        `SELECT 
+          alert_id,
+          sensor_id,
+          observation_id,
+          alert_type,
+          severity,
+          score,
+          description,
+          resolved,
+          created_at
+         FROM Alerts 
+         WHERE alert_id = ?`,
+        [alertId]
+      );
 
-      if (!alert) {
+      if (!alerts || alerts.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Alert not found'
@@ -50,7 +141,7 @@ class IoTAlertController {
 
       return res.json({
         success: true,
-        alert
+        alert: alerts[0]
       });
 
     } catch (error) {
@@ -62,24 +153,28 @@ class IoTAlertController {
     }
   }
 
-
-  
-
   /**
    * Resolve an alert
    * @route POST /api/iot/alerts/:id/resolve
    */
   async resolveAlert(req, res) {
     try {
-      const alertId = String(req.params.id);
+      const alertId = req.params.id;
 
-      const alert = await IoTAlert.findByAlertId(alertId);
-      if (!alert) {
+      // Check if alert exists
+      const [alerts] = await pool.execute(
+        'SELECT * FROM Alerts WHERE alert_id = ?',
+        [alertId]
+      );
+
+      if (!alerts || alerts.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Alert not found'
         });
       }
+
+      const alert = alerts[0];
 
       // Check if already resolved
       if (alert.resolved) {
@@ -89,14 +184,31 @@ class IoTAlertController {
         });
       }
 
-      const updatedAlert = await IoTAlert.resolve(alertId);
+      // Update alert to resolved
+      const [result] = await pool.execute(
+        'UPDATE Alerts SET resolved = 1 WHERE alert_id = ?',
+        [alertId]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Alert not found'
+        });
+      }
+
+      // Get updated alert
+      const [updatedAlerts] = await pool.execute(
+        'SELECT * FROM Alerts WHERE alert_id = ?',
+        [alertId]
+      );
 
       console.log(`✅ Alert resolved: ${alertId}`);
 
       return res.json({
         success: true,
         message: 'Alert resolved successfully',
-        alert: updatedAlert
+        alert: updatedAlerts[0]
       });
 
     } catch (error) {
@@ -114,15 +226,22 @@ class IoTAlertController {
    */
   async unresolveAlert(req, res) {
     try {
-      const alertId = String(req.params.id);
+      const alertId = req.params.id;
 
-      const alert = await IoTAlert.findByAlertId(alertId);
-      if (!alert) {
+      // Check if alert exists
+      const [alerts] = await pool.execute(
+        'SELECT * FROM Alerts WHERE alert_id = ?',
+        [alertId]
+      );
+
+      if (!alerts || alerts.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Alert not found'
         });
       }
+
+      const alert = alerts[0];
 
       // Check if already unresolved
       if (!alert.resolved) {
@@ -132,14 +251,31 @@ class IoTAlertController {
         });
       }
 
-      const updatedAlert = await IoTAlert.unresolve(alertId);
+      // Update alert to unresolved
+      const [result] = await pool.execute(
+        'UPDATE Alerts SET resolved = 0 WHERE alert_id = ?',
+        [alertId]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Alert not found'
+        });
+      }
+
+      // Get updated alert
+      const [updatedAlerts] = await pool.execute(
+        'SELECT * FROM Alerts WHERE alert_id = ?',
+        [alertId]
+      );
 
       console.log(`✅ Alert unresolved: ${alertId}`);
 
       return res.json({
         success: true,
         message: 'Alert marked as unresolved successfully',
-        alert: updatedAlert
+        alert: updatedAlerts[0]
       });
 
     } catch (error) {
