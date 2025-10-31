@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const cors = require('cors');
 const { json } = require('stream/consumers');
+require('dotenv').config();
 
 const app = express();
 app.use(express.json());
@@ -15,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 //Point to main backend's models folder
 const MODELS_DIR = path.join(__dirname, '../backend/ml/models');
 const PYTHON_SCRIPT = path.join(__dirname, 'train.py');
-const MAIN_BACKEND_URL = process.env.MAIN_BACKEND_URL || 'http://localhost:5000';
+const MAIN_BACKEND_URL = process.env.MAIN_BACKEND_URL;
 
 //Training state
 let trainingProcess = null;
@@ -332,4 +333,5 @@ app.listen(PORT, () => {
   console.log(`Python script: ${PYTHON_SCRIPT}`);
   console.log(`Main backend: ${MAIN_BACKEND_URL}`);
   console.log('');
+
 });
