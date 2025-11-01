@@ -4,15 +4,11 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const aiServerService = require('../services/AiServerTraining');
 
-
 // Path
 const MODELS_DIR = path.join(__dirname, '../../ml/models');
 const ACTIVE_MODEL_PATH = path.join(__dirname, '../../ml/active_model.txt');
 
-
-
-//Start model training
-
+// Start model training
 const startTraining = async (req, res) => {
   try {
     const result = await aiServerService.startTraining(req.body);
@@ -27,9 +23,7 @@ const startTraining = async (req, res) => {
   }
 };
 
-
-//Get current training status
-
+// Get current training status
 const getTrainingStatus = async (req, res) => {
   try {
     const result = await aiServerService.getTrainingStatus();
@@ -42,9 +36,7 @@ const getTrainingStatus = async (req, res) => {
   }
 };
 
-
-//Stop training process
-
+// Stop training process
 const stopTraining = async (req, res) => {
   try {
     const result = await aiServerService.stopTraining();
@@ -57,11 +49,31 @@ const stopTraining = async (req, res) => {
   }
 };
 
-
-//Get list of trained models
+// Get list of trained models with pagination
 const getModels = async (req, res) => {
   try {
-    //Read all directories in models folder (each training creates a folder)
+    // Parse pagination params: support limit/offset or page/size
+    const sizeQ = req.query.limit ?? req.query.size;
+    const pageQ = req.query.page;
+    const offsetQ = req.query.offset;
+
+    // Validate and set size (limit)
+    let size = Number(sizeQ);
+    if (!Number.isFinite(size) || size <= 0) size = 10;
+    if (size > 100) size = 100;
+
+    // Validate and set offset
+    let offset = Number(offsetQ);
+    if (!Number.isFinite(offset) || offset < 0) {
+      const pageNum = Number(pageQ);
+      if (Number.isFinite(pageNum) && pageNum > 0) {
+        offset = (pageNum - 1) * size;
+      } else {
+        offset = 0;
+      }
+    }
+
+    // Read all directories in models folder (each training creates a folder)
     const items = await fs.readdir(MODELS_DIR, { withFileTypes: true });
     const modelDirs = items.filter(item => item.isDirectory());
     
@@ -74,8 +86,8 @@ const getModels = async (req, res) => {
       // No active model set
     }
 
-    // Get model details
-    const models = await Promise.all(
+    // Get model details for all models
+    const allModels = await Promise.all(
       modelDirs.map(async (dir) => {
         const dirPath = path.join(MODELS_DIR, dir.name);
         const stats = await fs.stat(dirPath);
@@ -108,11 +120,29 @@ const getModels = async (req, res) => {
     );
 
     // Sort by creation date (newest first)
-    models.sort((a, b) => b.created - a.created);
+    allModels.sort((a, b) => new Date(b.created) - new Date(a.created));
+
+    // Calculate total count
+    const total = allModels.length;
+
+    // Apply pagination - slice the array for current page
+    const paginatedModels = allModels.slice(offset, offset + size);
+
+    // Derive current page if not provided
+    const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 ? Number(pageQ) : Math.floor(offset / size) + 1;
 
     res.json({
       success: true,
-      models
+      models: paginatedModels,
+      total,
+      page: currentPage,
+      size,
+      pagination: {
+        total,
+        page: currentPage,
+        size,
+        totalPages: Math.ceil(total / size)
+      }
     });
 
   } catch (error) {
@@ -124,7 +154,6 @@ const getModels = async (req, res) => {
     });
   }
 };
-
 
 const deleteModel = async (req, res) => {
   try {
@@ -184,8 +213,6 @@ const deleteModel = async (req, res) => {
     });
   }
 };
-
-
 
 const getModelPlot = (req, res) => {
   try{
@@ -252,7 +279,6 @@ const finishTraining = async (req, res) => {
   }
 };
 
-
 const activateModel = async (req, res) => {
   try {
     const { modelName } = req.params;
@@ -305,7 +331,6 @@ const activateModel = async (req, res) => {
     });
   }
 };
-
 
 module.exports = {
   startTraining,
