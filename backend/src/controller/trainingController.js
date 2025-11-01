@@ -49,13 +49,28 @@ const stopTraining = async (req, res) => {
   }
 };
 
-// Get list of trained models with pagination
+// Get list of trained models with pagination, filtering, sorting, and search
 const getModels = async (req, res) => {
   try {
     // Parse pagination params: support limit/offset or page/size
     const sizeQ = req.query.limit ?? req.query.size;
     const pageQ = req.query.page;
     const offsetQ = req.query.offset;
+
+    // Parse filter, search, and NEW sort parameters
+    const searchQuery = req.query.search || '';
+    const filterOption = req.query.filter || 'all';
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = req.query.sortOrder || 'DESC';
+
+    console.log('Received query params:', {
+      search: searchQuery,
+      filter: filterOption,
+      sortBy: sortBy,
+      sortOrder: sortOrder,
+      page: pageQ,
+      limit: sizeQ
+    });
 
     // Validate and set size (limit)
     let size = Number(sizeQ);
@@ -77,17 +92,20 @@ const getModels = async (req, res) => {
     const items = await fs.readdir(MODELS_DIR, { withFileTypes: true });
     const modelDirs = items.filter(item => item.isDirectory());
     
+    console.log(`Found ${modelDirs.length} model directories`);
+    
     // Get active model
     let activeModel = null;
     try {
       activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
       activeModel = activeModel.trim();
+      console.log('Active model:', activeModel);
     } catch (error) {
-      // No active model set
+      console.log('No active model set');
     }
 
     // Get model details for all models
-    const allModels = await Promise.all(
+    let allModels = await Promise.all(
       modelDirs.map(async (dir) => {
         const dirPath = path.join(MODELS_DIR, dir.name);
         const stats = await fs.stat(dirPath);
@@ -119,10 +137,54 @@ const getModels = async (req, res) => {
       })
     );
 
-    // Sort by creation date (newest first)
-    allModels.sort((a, b) => new Date(b.created) - new Date(a.created));
+    console.log(`Processing ${allModels.length} models before filtering`);
 
-    // Calculate total count
+    // Apply search filter
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      allModels = allModels.filter(model => 
+        model.name.toLowerCase().includes(searchLower)
+      );
+      console.log(`After search filter: ${allModels.length} models`);
+    }
+
+    // Apply status filter
+    if (filterOption === 'active') {
+      allModels = allModels.filter(model => model.active);
+      console.log(`After active filter: ${allModels.length} models`);
+    } else if (filterOption === 'inactive') {
+      allModels = allModels.filter(model => !model.active);
+      console.log(`After inactive filter: ${allModels.length} models`);
+    }
+
+    // Apply sorting with direction support
+    console.log(`Sorting by: ${sortBy}, order: ${sortOrder}`);
+    switch (sortBy) {
+      case 'name':
+        allModels.sort((a, b) => {
+          const comparison = a.name.localeCompare(b.name);
+          return sortOrder === 'ASC' ? comparison : -comparison;
+        });
+        console.log('Sorted by name');
+        break;
+      case 'size':
+        allModels.sort((a, b) => {
+          const comparison = a.size - b.size;
+          return sortOrder === 'ASC' ? comparison : -comparison;
+        });
+        console.log('Sorted by size');
+        break;
+      case 'created_at':
+      default:
+        allModels.sort((a, b) => {
+          const comparison = new Date(a.created) - new Date(b.created);
+          return sortOrder === 'ASC' ? comparison : -comparison;
+        });
+        console.log('Sorted by creation date');
+        break;
+    }
+
+    // Calculate total count after filtering
     const total = allModels.length;
 
     // Apply pagination - slice the array for current page
@@ -130,6 +192,14 @@ const getModels = async (req, res) => {
 
     // Derive current page if not provided
     const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 ? Number(pageQ) : Math.floor(offset / size) + 1;
+
+    console.log(`Returning ${paginatedModels.length} models for page ${currentPage}`);
+    console.log('First model sample:', paginatedModels[0] ? {
+      name: paginatedModels[0].name,
+      created: paginatedModels[0].created,
+      size: paginatedModels[0].size,
+      active: paginatedModels[0].active
+    } : 'No models');
 
     res.json({
       success: true,
@@ -142,6 +212,12 @@ const getModels = async (req, res) => {
         page: currentPage,
         size,
         totalPages: Math.ceil(total / size)
+      },
+      filters: {
+        search: searchQuery,
+        filter: filterOption,
+        sortBy: sortBy,
+        sortOrder: sortOrder
       }
     });
 
@@ -155,6 +231,7 @@ const getModels = async (req, res) => {
   }
 };
 
+// ... rest of the trainingController.js remains the same ...
 const deleteModel = async (req, res) => {
   try {
     const { modelName } = req.params;

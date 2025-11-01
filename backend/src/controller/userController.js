@@ -1,5 +1,5 @@
 const User = require("../models/User");
-const pool = require('../config/database'); // Add this import
+const pool = require('../config/database');
 
 class UserController {
   static async updateUserRole(req, res) {
@@ -32,9 +32,61 @@ class UserController {
     }
   }
 
+  static async deleteUser(req, res) {
+    try {
+      const userId = req.params.id;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: "User ID is required",
+        });
+      }
+
+      // Prevent users from deleting themselves
+      if (req.user.id == userId) {
+        return res.status(400).json({
+          success: false,
+          message: "You cannot delete your own account",
+        });
+      }
+
+      // Check if user exists
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      // Delete user from database
+      const deleteQuery = 'DELETE FROM Users WHERE user_id = ?';
+      const [result] = await pool.execute(deleteQuery, [userId]);
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "User deleted successfully",
+      });
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      return res.status(500).json({
+        success: false,
+        message: "Error deleting user",
+        error: error.message,
+      });
+    }
+  }
+
   static async getProfile(req, res) {
     try {
-      // req.user is set by auth middleware
       const user = await User.findById(req.user.id);
 
       if (!user) {
@@ -49,15 +101,16 @@ class UserController {
 
   static async getAllUsers(req, res) {
     try {
-      // Parse pagination params: support limit/offset or page/size (following plantController pattern)
+      // Parse pagination params
       const sizeQ = req.query.limit ?? req.query.size;
       const pageQ = req.query.page;
       const offsetQ = req.query.offset;
 
-      // Parse filter and sort parameters
+      // Parse filter, sort, and search parameters
       const roleFilter = req.query.role;
-      const sortKey = req.query.sort || 'created_at';
-      const sortOrder = req.query.order || 'desc';
+      const sortKey = req.query.sortBy || req.query.sort || 'created_at';
+      const sortOrder = req.query.sortOrder || req.query.order || 'DESC';
+      const searchQuery = req.query.search;
 
       // Validate and set size (limit)
       let size = Number(sizeQ);
@@ -85,6 +138,13 @@ class UserController {
         queryParams.push(roleFilter);
       }
 
+      // Add search filter if provided (search in username and email)
+      if (searchQuery && searchQuery.trim()) {
+        baseQuery += ` AND (username LIKE ? OR email LIKE ?)`;
+        const searchPattern = `%${searchQuery.trim()}%`;
+        queryParams.push(searchPattern, searchPattern);
+      }
+
       // Query total count
       const countQuery = `SELECT COUNT(*) AS total ${baseQuery}`;
       const [countRows] = await pool.execute(countQuery, queryParams);
@@ -99,7 +159,7 @@ class UserController {
       // Add sorting (validate sortKey to prevent SQL injection)
       const allowedSortKeys = ['username', 'email', 'role', 'created_at', 'updated_at'];
       const safeSortKey = allowedSortKeys.includes(sortKey) ? sortKey : 'created_at';
-      const safeSortOrder = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+      const safeSortOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
       
       mainQuery += ` ORDER BY ${safeSortKey} ${safeSortOrder}`;
       

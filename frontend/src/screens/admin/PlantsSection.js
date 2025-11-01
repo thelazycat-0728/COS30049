@@ -24,6 +24,14 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
   const [plantModalVisible, setPlantModalVisible] = useState(false);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [savingPlant, setSavingPlant] = useState(false);
+  const [loading, setLoading] = useState(false);
+  
+  // Filter and search states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [conservationFilter, setConservationFilter] = useState('');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('DESC');
+
   const [plantForm, setPlantForm] = useState({
     common_name: '',
     scientific_name: '',
@@ -45,12 +53,21 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
 
   useEffect(() => {
     fetchPlants();
-  }, [plantsPage]);
+  }, [plantsPage, searchQuery, conservationFilter, sortBy, sortOrder]);
 
   const fetchPlants = async () => {
     try {
+      setLoading(true);
       const token = await getAuthToken();
-      const params = new URLSearchParams({ page: String(plantsPage), size: String(PLANTS_PAGE_SIZE) });
+      const params = new URLSearchParams({ 
+        page: String(plantsPage), 
+        size: String(PLANTS_PAGE_SIZE),
+        ...(searchQuery && { search: searchQuery }),
+        ...(conservationFilter && { conservation_status: conservationFilter }),
+        sortBy,
+        sortOrder
+      });
+      
       const res = await fetch(`${API_URL}/admin/plants?${params.toString()}`, {
         headers: {
           'Content-Type': 'application/json',
@@ -79,7 +96,39 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
     } catch (err) {
       console.error('Plants fetch error:', err);
       Alert.alert('Error', err.message || 'Failed to load plants');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    setPlantsPage(1); // Reset to first page when searching
+  };
+
+  const handleFilterChange = (value) => {
+    setConservationFilter(value);
+    setPlantsPage(1); // Reset to first page when filtering
+  };
+
+  const handleSortChange = (field) => {
+    if (sortBy === field) {
+      // Toggle sort order if same field
+      setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
+    } else {
+      // New field, default to ascending
+      setSortBy(field);
+      setSortOrder('ASC');
+    }
+    setPlantsPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setConservationFilter('');
+    setSortBy('created_at');
+    setSortOrder('DESC');
+    setPlantsPage(1);
   };
 
   const openAddPlant = () => {
@@ -231,7 +280,7 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
   };
 
   const CONSERVATION_OPTIONS = [
-    { key: '', label: 'All' },
+    { key: '', label: 'All Status' },
     { key: 'least_concern', label: 'Least Concern' },
     { key: 'near_threatened', label: 'Near Threatened' },
     { key: 'vulnerable', label: 'Vulnerable' },
@@ -239,38 +288,138 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
     { key: 'critically_endangered', label: 'Critically Endangered' },
   ];
 
+  const SORT_OPTIONS = [
+    { key: 'common_name', label: 'Name' },
+    { key: 'scientific_name', label: 'Scientific Name' },
+    { key: 'family', label: 'Family' },
+    { key: 'conservation_status', label: 'Conservation' },
+    { key: 'created_at', label: 'Date Added' },
+  ];
+
+  const getSortIcon = (field) => {
+    if (sortBy !== field) return 'swap-vertical';
+    return sortOrder === 'ASC' ? 'arrow-up' : 'arrow-down';
+  };
+
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Plants Management</Text>
-        <TouchableOpacity 
-          style={styles.addButton}
-          onPress={openAddPlant}
-        >
-          <Ionicons name="add" size={20} color="white" />
-          <Text style={styles.addButtonText}>Add Plant</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Loading Indicator */}
+      {loading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2e7d32" />
+          <Text style={styles.loadingText}>Loading plants...</Text>
+        </View>
+      )}
 
       <ScrollView style={styles.contentScroll}>
+        {/* Search and Filter Section - Now inside ScrollView */}
+        <View style={styles.filterSection}>
+          {/* Search Input */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search plants..."
+              value={searchQuery}
+              onChangeText={handleSearch}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Filter Row */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+            {/* Conservation Status Filter */}
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterLabel}>Status:</Text>
+              <ScrollView horizontal style={styles.filterOptions}>
+                {CONSERVATION_OPTIONS.map(option => (
+                  <TouchableOpacity
+                    key={`cons-${option.key}`}
+                    style={[
+                      styles.filterOption,
+                      conservationFilter === option.key && styles.filterOptionActive
+                    ]}
+                    onPress={() => handleFilterChange(option.key)}
+                  >
+                    <Text style={[
+                      styles.filterOptionText,
+                      conservationFilter === option.key && styles.filterOptionTextActive
+                    ]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </ScrollView>
+
+          {/* Sort Row - Now horizontally scrollable */}
+          <View style={styles.sortRow}>
+            <Text style={styles.sortLabel}>Sort by:</Text>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.sortOptions}
+            >
+              {SORT_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={`sort-${option.key}`}
+                  style={[
+                    styles.sortOption,
+                    sortBy === option.key && styles.sortOptionActive
+                  ]}
+                  onPress={() => handleSortChange(option.key)}
+                >
+                  <Ionicons 
+                    name={getSortIcon(option.key)} 
+                    size={16} 
+                    color={sortBy === option.key ? '#2e7d32' : '#666'} 
+                  />
+                  <Text style={[
+                    styles.sortOptionText,
+                    sortBy === option.key && styles.sortOptionTextActive
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Clear Filters - Updated to red button style */}
+          {(searchQuery || conservationFilter || sortBy !== 'created_at') && (
+            <TouchableOpacity style={styles.clearFiltersButtonRed} onPress={clearFilters}>
+              <Ionicons name="close-circle-outline" size={16} color="#fff" />
+              <Text style={styles.clearFiltersTextRed}>Clear Filters</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Plants List */}
         {plants.map(plant => (
           <View key={plant.id} style={styles.plantCard}>
             <View style={styles.plantHeader}>
               <Text style={styles.plantName}>{plant.name}</Text>
+              {plant.conservation_status ? (
+                <View style={[styles.consBadge, { backgroundColor: getConservationColor(plant.conservation_status) }]}>
+                  <Text style={styles.consText}>
+                    {(plant.conservation_status || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                  </Text>
+                </View>
+              ) : null}
             </View>
             <Text style={styles.scientificName}>{plant.scientificName}</Text>
-            {plant.conservation_status ? (
-              <View style={[styles.consBadge, { backgroundColor: getConservationColor(plant.conservation_status) }]}>
-                <Text style={styles.consText}>
-                  {(plant.conservation_status || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                </Text>
-              </View>
+            {plant.family ? (
+              <Text style={styles.plantFamily}>Family: {plant.family}</Text>
             ) : null}
             {plant.image_url ? (
               <Image source={{ uri: plant.image_url }} style={styles.obsImage} />
             ) : null}
             <Text style={styles.plantDescription}>{plant.description}</Text>
-            <Text style={styles.plantFamily}>Family: {plant.family}</Text>
             <View style={styles.modelActions}>
               <TouchableOpacity 
                 style={styles.viewDetailsButton}
@@ -289,36 +438,49 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
           </View>
         ))}
         
-        {plants.length === 0 && (
+        {plants.length === 0 && !loading && (
           <View style={styles.emptyState}>
             <Ionicons name="leaf-outline" size={48} color="#ccc" />
-            <Text style={styles.emptyStateText}>No plants added yet</Text>
-            <Text style={styles.emptyStateSubtext}>Add your first plant to get started</Text>
+            <Text style={styles.emptyStateText}>No plants found</Text>
+            <Text style={styles.emptyStateSubtext}>
+              {searchQuery || conservationFilter
+                ? 'Try adjusting your search or filters' 
+                : 'Add your first plant to get started'
+              }
+            </Text>
           </View>
         )}
 
         {plants.length > 0 && (
           <View style={styles.paginationBar}>
             <TouchableOpacity
-              style={[styles.pageButton, plantsPage <= 1 && styles.disabledButton]}
+              style={[styles.pageArrowButton, plantsPage <= 1 && styles.disabledButton]}
               onPress={() => plantsPage > 1 && setPlantsPage(plantsPage - 1)}
               disabled={plantsPage <= 1}
             >
-              <Ionicons name="chevron-back" size={18} color={plantsPage <= 1 ? '#fff' : '#2e7d32'} />
-              <Text style={[styles.pageButtonText, plantsPage <= 1 && styles.pageButtonTextDisabled]}>Prev</Text>
+              <Ionicons name="chevron-back" size={20} color={plantsPage <= 1 ? '#ccc' : '#2e7d32'} />
             </TouchableOpacity>
+            
             <Text style={styles.pageIndicator}>Page {plantsPage} of {totalPlantPages}</Text>
+            
             <TouchableOpacity
-              style={[styles.pageButton, plantsPage >= totalPlantPages && styles.disabledButton]}
+              style={[styles.pageArrowButton, plantsPage >= totalPlantPages && styles.disabledButton]}
               onPress={() => plantsPage < totalPlantPages && setPlantsPage(plantsPage + 1)}
               disabled={plantsPage >= totalPlantPages}
             >
-              <Text style={[styles.pageButtonText, plantsPage >= totalPlantPages && styles.pageButtonTextDisabled]}>Next</Text>
-              <Ionicons name="chevron-forward" size={18} color={plantsPage >= totalPlantPages ? '#fff' : '#2e7d32'} />
+              <Ionicons name="chevron-forward" size={20} color={plantsPage >= totalPlantPages ? '#ccc' : '#2e7d32'} />
             </TouchableOpacity>
           </View>
         )}
       </ScrollView>
+
+      {/* Floating Action Button for Add Plant */}
+      <TouchableOpacity 
+        style={styles.floatingActionButton}
+        onPress={openAddPlant}
+      >
+        <Ionicons name="add" size={24} color="white" />
+      </TouchableOpacity>
 
       {/* Add/Edit Plant Modal */}
       <Modal

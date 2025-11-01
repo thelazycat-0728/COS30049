@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Modal,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Line, Circle, Path, Text as SvgText } from 'react-native-svg';
@@ -28,7 +29,26 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
   const [sensorSeriesLoading, setSensorSeriesLoading] = useState(false);
   const [chartWidth, setChartWidth] = useState(0);
 
+  // Filter and search states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('DESC');
+
   const totalSensorsPages = useMemo(() => Math.max(1, Math.ceil(sensorsTotal / SENSORS_PAGE_SIZE)), [sensorsTotal]);
+
+  const STATUS_OPTIONS = [
+    { key: '', label: 'All Status' },
+    { key: 'active', label: 'Active' },
+    { key: 'inactive', label: 'Inactive' },
+    { key: 'maintenance', label: 'Maintenance' },
+  ];
+
+  const SORT_OPTIONS = [
+    { key: 'created_at', label: 'Date Added' },
+    { key: 'observation_id', label: 'Observation ID' },
+    { key: 'observation_name', label: 'Observation Name' },
+  ];
 
   useEffect(() => {
     if (sensorsPage > totalSensorsPages) {
@@ -38,7 +58,7 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
 
   useEffect(() => {
     fetchSensors();
-  }, [sensorsPage]);
+  }, [sensorsPage, searchQuery, statusFilter, sortBy, sortOrder]);
 
   const getSensorStatusColor = (status) => {
     const colors = {
@@ -58,6 +78,10 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
       const params = new URLSearchParams({
         page: String(sensorsPage),
         size: String(SENSORS_PAGE_SIZE),
+        ...(searchQuery && { search: searchQuery }),
+        ...(statusFilter && { status: statusFilter }),
+        sortBy,
+        sortOrder
       });
       
       const res = await fetch(`${API_URL}/iot/sensors?${params.toString()}`, {
@@ -323,88 +347,215 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
     return map[status] || '#9E9E9E';
   };
 
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    setSensorsPage(1);
+  };
+
+  const handleFilterChange = (value) => {
+    setStatusFilter(value);
+    setSensorsPage(1);
+  };
+
+  const handleSortChange = (field) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
+    } else {
+      setSortBy(field);
+      setSortOrder('ASC');
+    }
+    setSensorsPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('');
+    setSortBy('created_at');
+    setSortOrder('DESC');
+    setSensorsPage(1);
+  };
+
+  const getSortIcon = (field) => {
+    if (sortBy !== field) return 'swap-vertical';
+    return sortOrder === 'ASC' ? 'arrow-up' : 'arrow-down';
+  };
+
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Observations with Sensors</Text>
-      </View>
-
-      {sensorsLoading ? (
-        <View style={styles.placeholderBox}>
+      {/* Loading Indicator */}
+      {sensorsLoading && (
+        <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2e7d32" />
-          <Text style={{ marginTop: 12, color: '#666' }}>Loading observations...</Text>
+          <Text style={styles.loadingText}>Loading sensors...</Text>
         </View>
-      ) : sensorsError ? (
-        <View style={styles.placeholderBox}>
-          <Ionicons name="warning-outline" size={32} color="#F44336" />
-          <Text style={{ marginTop: 8, color: '#F44336' }}>{String(sensorsError)}</Text>
-          <TouchableOpacity
-            style={[styles.viewDetailsButton, { marginTop: 12 }]}
-            onPress={fetchSensors}
-          >
-            <Text style={styles.viewDetailsText}>Retry</Text>
-          </TouchableOpacity>
+      )}
+
+      <ScrollView style={styles.contentScroll}>
+        {/* Search and Filter Section */}
+        <View style={styles.filterSection}>
+          {/* Search Input */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search sensors..."
+              value={searchQuery}
+              onChangeText={handleSearch}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Filter Row */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+            {/* Status Filter */}
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterLabel}>Status:</Text>
+              <ScrollView horizontal style={styles.filterOptions}>
+                {STATUS_OPTIONS.map(option => (
+                  <TouchableOpacity
+                    key={`status-${option.key}`}
+                    style={[
+                      styles.filterOption,
+                      statusFilter === option.key && styles.filterOptionActive
+                    ]}
+                    onPress={() => handleFilterChange(option.key)}
+                  >
+                    <Text style={[
+                      styles.filterOptionText,
+                      statusFilter === option.key && styles.filterOptionTextActive
+                    ]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </ScrollView>
+
+          {/* Sort Row */}
+          <View style={styles.sortRow}>
+            <Text style={styles.sortLabel}>Sort by:</Text>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.sortOptions}
+            >
+              {SORT_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={`sort-${option.key}`}
+                  style={[
+                    styles.sortOption,
+                    sortBy === option.key && styles.sortOptionActive
+                  ]}
+                  onPress={() => handleSortChange(option.key)}
+                >
+                  <Ionicons 
+                    name={getSortIcon(option.key)} 
+                    size={16} 
+                    color={sortBy === option.key ? '#2e7d32' : '#666'} 
+                  />
+                  <Text style={[
+                    styles.sortOptionText,
+                    sortBy === option.key && styles.sortOptionTextActive
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Clear Filters */}
+          {(searchQuery || statusFilter || sortBy !== 'created_at') && (
+            <TouchableOpacity style={styles.clearFiltersButtonRed} onPress={clearFilters}>
+              <Ionicons name="close-circle-outline" size={16} color="#fff" />
+              <Text style={styles.clearFiltersTextRed}>Clear Filters</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      ) : (
-        <ScrollView style={styles.contentScroll}>
-          {sensorsObsList.map(obs => {
-            const oid = obs.observation_id;
-            const sensorsForObs = sensorsByObservation[oid] || [];
-            const pname = plantCache[obs.plant_id]?.common_name || `Plant #${obs.plant_id}`;
-            return (
-              <View key={oid} style={styles.plantCard}>
-                <View style={styles.plantHeader}>
-                  <Text style={styles.plantName}>{pname}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(obs.status) }]}> 
-                    <Text style={styles.statusText}>{(obs.status || 'unknown').toUpperCase()}</Text>
+
+        {/* Sensors List */}
+        {sensorsError ? (
+          <View style={styles.placeholderBox}>
+            <Ionicons name="alert-circle-outline" size={32} color="#F44336" />
+            <Text style={{ marginTop: 8, color: '#F44336' }}>{String(sensorsError)}</Text>
+            <TouchableOpacity
+              style={[styles.viewDetailsButton, { marginTop: 12 }]}
+              onPress={fetchSensors}
+            >
+              <Text style={styles.viewDetailsText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            {sensorsObsList.map(obs => {
+              const oid = obs.observation_id;
+              const sensorsForObs = sensorsByObservation[oid] || [];
+              const pname = plantCache[obs.plant_id]?.common_name || `Plant #${obs.plant_id}`;
+              return (
+                <View key={oid} style={styles.plantCard}>
+                  <View style={styles.plantHeader}>
+                    <Text style={styles.plantName}>{pname}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(obs.status) }]}> 
+                      <Text style={styles.statusText}>{(obs.status || 'unknown').toUpperCase()}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.scientificName}>{plantCache[obs.plant_id]?.scientific_name || ''}</Text>
+                  <Text style={styles.obsMetaText}>Observation ID: {oid}</Text>
+                  <Text style={styles.obsMetaText}>Sensors attached: {sensorsForObs.length}</Text>
+                  <View style={styles.modelActions}>
+                    <TouchableOpacity 
+                      style={styles.viewDetailsButton}
+                      onPress={() => openObservationSensorsModal(obs)}
+                    >
+                      <Text style={styles.viewDetailsText}>View Sensors</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <Text style={styles.scientificName}>{plantCache[obs.plant_id]?.scientific_name || ''}</Text>
-                <Text style={styles.obsMetaText}>Observation ID: {oid}</Text>
-                <Text style={styles.obsMetaText}>Sensors attached: {sensorsForObs.length}</Text>
-                <View style={styles.modelActions}>
-                  <TouchableOpacity 
-                    style={styles.viewDetailsButton}
-                    onPress={() => openObservationSensorsModal(obs)}
-                  >
-                    <Text style={styles.viewDetailsText}>View Sensors</Text>
-                  </TouchableOpacity>
-                </View>
+              );
+            })}
+
+            {sensorsObsList.length === 0 && !sensorsLoading && (
+              <View style={styles.emptyState}>
+                <Ionicons name="hardware-chip-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyStateText}>No observations have sensors yet</Text>
+                <Text style={styles.emptyStateSubtext}>
+                  {searchQuery || statusFilter
+                    ? 'Try adjusting your search or filters' 
+                    : 'Link an IoT sensor to an observation to see it here'
+                  }
+                </Text>
               </View>
-            );
-          })}
+            )}
 
-          {sensorsObsList.length === 0 && (
-            <View style={styles.emptyState}>
-              <Ionicons name="hardware-chip-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyStateText}>No observations have sensors yet</Text>
-              <Text style={styles.emptyStateSubtext}>Link an IoT sensor to an observation to see it here</Text>
-            </View>
-          )}
-
-          {sensorsObsList.length > 0 && (
-            <View style={styles.paginationBar}>
-              <TouchableOpacity
-                style={[styles.pageButton, sensorsPage <= 1 && styles.disabledButton]}
-                onPress={() => sensorsPage > 1 && setSensorsPage(sensorsPage - 1)}
-                disabled={sensorsPage <= 1}
-              >
-                <Ionicons name="chevron-back" size={18} color={sensorsPage <= 1 ? '#fff' : '#2e7d32'} />
-                <Text style={[styles.pageButtonText, sensorsPage <= 1 && styles.pageButtonTextDisabled]}>Prev</Text>
-              </TouchableOpacity>
-              <Text style={styles.pageIndicator}>Page {sensorsPage} of {totalSensorsPages}</Text>
-              <TouchableOpacity
-                style={[styles.pageButton, sensorsPage >= totalSensorsPages && styles.disabledButton]}
-                onPress={() => sensorsPage < totalSensorsPages && setSensorsPage(sensorsPage + 1)}
-                disabled={sensorsPage >= totalSensorsPages}
-              >
-                <Text style={[styles.pageButtonText, sensorsPage >= totalSensorsPages && styles.pageButtonTextDisabled]}>Next</Text>
-                <Ionicons name="chevron-forward" size={18} color={sensorsPage >= totalSensorsPages ? '#fff' : '#2e7d32'} />
-              </TouchableOpacity>
-            </View>
-          )}
-        </ScrollView>
-      )}
+            {sensorsObsList.length > 0 && (
+              <View style={styles.paginationBar}>
+                <TouchableOpacity
+                  style={[styles.pageArrowButton, sensorsPage <= 1 && styles.disabledButton]}
+                  onPress={() => sensorsPage > 1 && setSensorsPage(sensorsPage - 1)}
+                  disabled={sensorsPage <= 1}
+                >
+                  <Ionicons name="chevron-back" size={20} color={sensorsPage <= 1 ? '#ccc' : '#2e7d32'} />
+                </TouchableOpacity>
+                
+                <Text style={styles.pageIndicator}>Page {sensorsPage} of {totalSensorsPages}</Text>
+                
+                <TouchableOpacity
+                  style={[styles.pageArrowButton, sensorsPage >= totalSensorsPages && styles.disabledButton]}
+                  onPress={() => sensorsPage < totalSensorsPages && setSensorsPage(sensorsPage + 1)}
+                  disabled={sensorsPage >= totalSensorsPages}
+                >
+                  <Ionicons name="chevron-forward" size={20} color={sensorsPage >= totalSensorsPages ? '#ccc' : '#2e7d32'} />
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        )}
+      </ScrollView>
 
       {/* Observation Sensors Modal */}
       <Modal

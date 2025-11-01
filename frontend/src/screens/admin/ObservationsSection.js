@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   Switch,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
@@ -22,13 +23,14 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
   const [obsPage, setObsPage] = useState(1);
   const OBS_PAGE_SIZE = 10;
   const [obsTotal, setObsTotal] = useState(0);
+  
+  // Filter and search states - UPDATED: removed conservation filter
+  const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [consFilters, setConsFilters] = useState([]);
   const [publicFilter, setPublicFilter] = useState('');
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [tempStatusFilter, setTempStatusFilter] = useState('');
-  const [tempConsFilters, setTempConsFilters] = useState([]);
-  const [tempPublicFilter, setTempPublicFilter] = useState('');
+  const [sortBy, setSortBy] = useState('po.created_at');
+  const [sortOrder, setSortOrder] = useState('DESC');
+
   const [obsDetailVisible, setObsDetailVisible] = useState(false);
   const [obsDetail, setObsDetail] = useState(null);
   const [statusSaving, setStatusSaving] = useState(false);
@@ -37,26 +39,25 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
   const totalObsPages = useMemo(() => Math.max(1, Math.ceil(obsTotal / OBS_PAGE_SIZE)), [obsTotal]);
 
   const statusOptions = [
-    { key: '', label: 'All' },
+    { key: '', label: 'All Status' },
     { key: 'pending', label: 'Pending' },
     { key: 'verified', label: 'Verified' },
     { key: 'unsure', label: 'Unsure' },
     { key: 'rejected', label: 'Rejected' },
   ];
 
-  const CONSERVATION_OPTIONS = [
-    { key: '', label: 'All' },
-    { key: 'least_concern', label: 'Least Concern' },
-    { key: 'near_threatened', label: 'Near Threatened' },
-    { key: 'vulnerable', label: 'Vulnerable' },
-    { key: 'endangered', label: 'Endangered' },
-    { key: 'critically_endangered', label: 'Critically Endangered' },
-  ];
-
   const PUBLIC_OPTIONS = [
-    { key: '', label: 'All' },
+    { key: '', label: 'All Visibility' },
     { key: 'public', label: 'Public' },
     { key: 'private', label: 'Private' },
+  ];
+
+  // UPDATED: Simplified sort options to only include required fields
+  const SORT_OPTIONS = [
+    { key: 'po.created_at', label: 'Date Added' },
+    { key: 'po.observation_date', label: 'Obs Date' },
+    { key: 'p.common_name', label: 'Plant Name' },
+    { key: 'po.confidence_score', label: 'Confidence' },
   ];
 
   useEffect(() => {
@@ -67,7 +68,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
 
   useEffect(() => {
     fetchObservations();
-  }, [obsPage, statusFilter, publicFilter, consFilters.join(',')]);
+  }, [obsPage, searchQuery, statusFilter, publicFilter, sortBy, sortOrder]); // UPDATED: removed conservationFilter
 
   const fetchObservations = async () => {
     if (obsLoading) return;
@@ -76,14 +77,12 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
       const params = new URLSearchParams({
         page: String(obsPage),
         size: String(OBS_PAGE_SIZE),
+        ...(searchQuery && { search: searchQuery }),
+        ...(statusFilter && { status: statusFilter }),
+        ...(publicFilter && { public: publicFilter }),
+        sortBy,
+        sortOrder
       });
-      
-      if (statusFilter) params.append('status', statusFilter);
-      if (publicFilter) params.append('public', publicFilter === 'public' ? '1' : '0');
-      if (consFilters && consFilters.length > 0) {
-        const selected = consFilters.filter(s => !!s && s !== '');
-        if (selected.length > 0) params.append('conservation_status', selected.join(','));
-      }
 
       const res = await fetch(`${API_URL}/observations?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -92,7 +91,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
 
       const list = Array.isArray(data.observations) ? data.observations : [];
       setObservations(list);
-      setObsTotal(data?.pagination?.total || data?.total || list.length);
+      setObsTotal(data?.total || list.length);
       await preloadPlantNames(list);
       setObsError(null);
     } catch (e) {
@@ -190,254 +189,289 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
     return map[status] || '#607D8B';
   };
 
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    setObsPage(1);
+  };
+
+  const handleFilterChange = (filterType, value) => {
+    if (filterType === 'status') {
+      setStatusFilter(value);
+    } else if (filterType === 'public') {
+      setPublicFilter(value);
+    }
+    setObsPage(1);
+  };
+
+  const handleSortChange = (field) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
+    } else {
+      setSortBy(field);
+      setSortOrder('ASC');
+    }
+    setObsPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('');
+    setPublicFilter('');
+    setSortBy('po.created_at');
+    setSortOrder('DESC');
+    setObsPage(1);
+  };
+
+  const getSortIcon = (field) => {
+    if (sortBy !== field) return 'swap-vertical';
+    return sortOrder === 'ASC' ? 'arrow-up' : 'arrow-down';
+  };
+
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Text style={styles.sectionTitle}>Observations</Text>
-          <TouchableOpacity style={styles.filterButton} onPress={() => {
-            setTempStatusFilter(statusFilter);
-            setTempConsFilters(consFilters);
-            setTempPublicFilter(publicFilter);
-            setFilterModalVisible(true);
-          }}>
-            <Text style={styles.filterText}>Filter</Text>
-            <Ionicons name="options-outline" size={18} color="#666" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {obsLoading ? (
-        <View style={styles.placeholderBox}>
+      {/* Loading Indicator */}
+      {obsLoading && (
+        <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2e7d32" />
-          <Text style={{ marginTop: 12, color: '#666' }}>Loading observations...</Text>
+          <Text style={styles.loadingText}>Loading observations...</Text>
         </View>
-      ) : obsError ? (
-        <View style={styles.placeholderBox}>
-          <Ionicons name="alert-circle-outline" size={32} color="#F44336" />
-          <Text style={{ marginTop: 8, color: '#F44336' }}>{String(obsError)}</Text>
-          <TouchableOpacity
-            style={[styles.viewDetailsButton, { marginTop: 12 }]}
-            onPress={fetchObservations}
-          >
-            <Text style={styles.viewDetailsText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <ScrollView style={styles.contentScroll}>
-          {observations.map(item => {
-            const plantInfo = plantCache[item.plant_id] || null;
-            const commonName = plantInfo?.common_name || `Plant #${item.plant_id}`;
-            const scientificName = plantInfo?.scientific_name || '';
-            const dateStr = (item.observation_date || '').toString().split('T')[0];
-            const lat = item.latitude != null ? Number(item.latitude).toFixed(5) : '—';
-            const lon = item.longitude != null ? Number(item.longitude).toFixed(5) : '—';
-            const cons = (item.conservation_status || plantInfo?.conservation_status || '').toString();
-            const consColor = getConservationColor(cons);
-            const isPublic = item.public === 1 || item.public === true;
-            return (
-              <TouchableOpacity key={item.observation_id} style={styles.plantCard} activeOpacity={0.85}
-                onPress={() => {
-                  setObsDetail(item);
-                  setObsDetailVisible(true);
-                }}
-              >
-                <View style={styles.obsHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.plantName}>{commonName}</Text>
-                    {scientificName ? <Text style={styles.scientificName}>{scientificName}</Text> : null}
-                    {cons ? (
-                      <View style={[styles.consBadge, { backgroundColor: consColor }]}>
-                        <Text style={styles.consText}>
-                          {(cons || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}> 
-                    <Text style={styles.statusText}>{(item.status || 'unknown').toUpperCase()}</Text>
-                  </View>
-                </View>
-
-                {item.image_url ? (
-                  <Image source={{ uri: item.image_url }} style={styles.obsImage} />
-                ) : null}
-
-                <View style={styles.obsMetaRow}>
-                  <Ionicons name="person-circle-outline" size={16} color="#666" />
-                  <Text style={styles.obsMetaText}>Uploader: {item.username || `User #${item.user_id}`}</Text>
-                </View>
-                <View style={styles.obsMetaRow}>
-                  <Ionicons name="calendar-outline" size={16} color="#666" />
-                  <Text style={styles.obsMetaText}>Date: {dateStr || 'N/A'}</Text>
-                </View>
-                <View style={styles.obsMetaRow}>
-                  <Ionicons name={isPublic ? 'globe-outline' : 'lock-closed-outline'} size={16} color={isPublic ? '#2e7d32' : '#666'} />
-                  <Text style={[styles.obsMetaText, { color: isPublic ? '#2e7d32' : '#666' }]}>{isPublic ? 'Public' : 'Private'}</Text>
-                </View>
-                <View style={styles.obsMetaRow}>
-                  <Ionicons name="location-outline" size={16} color="#666" />
-                  <Text style={styles.obsMetaText}>Lat: {lat}  |  Lon: {lon}</Text>
-                </View>
-                <View style={styles.obsMetaRow}>
-                  <Ionicons name="stats-chart-outline" size={16} color="#666" />
-                  <Text style={styles.obsMetaText}>Confidence: {item.confidence_score != null ? Number(item.confidence_score).toFixed(2) : '—'}</Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-          
-          {observations.length === 0 && (
-            <View style={styles.emptyState}>
-              <Ionicons name="eye-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyStateText}>No observations found</Text>
-              <Text style={styles.emptyStateSubtext}>Try adjusting filters or refresh</Text>
-            </View>
-          )}
-
-          {observations.length > 0 && (
-            <View style={styles.paginationBar}>
-              <TouchableOpacity
-                style={[styles.pageButton, obsPage <= 1 && styles.disabledButton]}
-                onPress={() => obsPage > 1 && setObsPage(obsPage - 1)}
-                disabled={obsPage <= 1}
-              >
-                <Ionicons name="chevron-back" size={18} color={obsPage <= 1 ? '#fff' : '#2e7d32'} />
-                <Text style={[styles.pageButtonText, obsPage <= 1 && styles.pageButtonTextDisabled]}>Prev</Text>
-              </TouchableOpacity>
-              <Text style={styles.pageIndicator}>Page {obsPage} of {totalObsPages}</Text>
-              <TouchableOpacity
-                style={[styles.pageButton, obsPage >= totalObsPages && styles.disabledButton]}
-                onPress={() => obsPage < totalObsPages && setObsPage(obsPage + 1)}
-                disabled={obsPage >= totalObsPages}
-              >
-                <Text style={[styles.pageButtonText, obsPage >= totalObsPages && styles.pageButtonTextDisabled]}>Next</Text>
-                <Ionicons name="chevron-forward" size={18} color={obsPage >= totalObsPages ? '#fff' : '#2e7d32'} />
-              </TouchableOpacity>
-            </View>
-          )}
-        </ScrollView>
       )}
 
-      {/* Filters Modal */}
-      <Modal
-        visible={filterModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setFilterModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filters</Text>
-              <TouchableOpacity onPress={() => setFilterModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#666" />
+      <ScrollView style={styles.contentScroll}>
+        {/* Search and Filter Section - UPDATED: Labels on same line as options */}
+        <View style={styles.filterSection}>
+          {/* Search Input */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search observations..."
+              value={searchQuery}
+              onChangeText={handleSearch}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color="#666" />
               </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Filter Rows - UPDATED: Labels inline with options */}
+          <View style={styles.filterRowsContainer}>
+            {/* Status Filter Row */}
+            <View style={styles.filterRow}>
+              <Text style={styles.filterLabel}>Status:</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false} 
+                style={styles.filterOptions}
+                contentContainerStyle={styles.filterOptionsContent}
+              >
+                {statusOptions.map(option => (
+                  <TouchableOpacity
+                    key={`status-${option.key}`}
+                    style={[
+                      styles.filterOption,
+                      statusFilter === option.key && styles.filterOptionActive
+                    ]}
+                    onPress={() => handleFilterChange('status', option.key)}
+                  >
+                    <Text style={[
+                      styles.filterOptionText,
+                      statusFilter === option.key && styles.filterOptionTextActive
+                    ]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
 
-            <ScrollView style={styles.modalBody}>
-              {/* Status Filter */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.inputLabel}>Status</Text>
-                <TouchableOpacity onPress={() => setTempStatusFilter('')}>
-                </TouchableOpacity>
-              </View>
-              <View>
-                {statusOptions.map(opt => (
+            {/* Visibility Filter Row */}
+            <View style={styles.filterRow}>
+              <Text style={styles.filterLabel}>Visibility:</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false} 
+                style={styles.filterOptions}
+                contentContainerStyle={styles.filterOptionsContent}
+              >
+                {PUBLIC_OPTIONS.map(option => (
                   <TouchableOpacity
-                    key={`modal-status-${opt.key || 'all'}`}
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
-                    onPress={() => setTempStatusFilter(opt.key)}
+                    key={`public-${option.key}`}
+                    style={[
+                      styles.filterOption,
+                      publicFilter === option.key && styles.filterOptionActive
+                    ]}
+                    onPress={() => handleFilterChange('public', option.key)}
                   >
-                    <Ionicons
-                      name={tempStatusFilter === opt.key ? 'radio-button-on' : 'radio-button-off'}
-                      size={20}
-                      color={tempStatusFilter === opt.key ? '#2e7d32' : '#666'}
-                    />
-                    <Text style={[styles.statusOptionText]}>{opt.label}</Text>
+                    <Text style={[
+                      styles.filterOptionText,
+                      publicFilter === option.key && styles.filterOptionTextActive
+                    ]}>
+                      {option.label}
+                    </Text>
                   </TouchableOpacity>
                 ))}
-              </View>
-
-              {/* Conservation Filter */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.inputLabel}>Conservation Status</Text>
-                <TouchableOpacity onPress={() => setTempConsFilters([])}>
-                </TouchableOpacity>
-              </View>
-              <View>
-                {CONSERVATION_OPTIONS.filter(o => o.key !== '').map(opt => {
-                  const checked = tempConsFilters.includes(opt.key);
-                  return (
-                    <TouchableOpacity
-                      key={`modal-cons-${opt.key}`}
-                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
-                      onPress={() => setTempConsFilters(prev => prev.includes(opt.key) ? prev.filter(k => k !== opt.key) : [...prev, opt.key])}
-                    >
-                      <Ionicons
-                        name={checked ? 'checkbox' : 'checkbox-outline'}
-                        size={20}
-                        color={checked ? '#2e7d32' : '#666'}
-                      />
-                      <View style={[styles.consBadge, { backgroundColor: getConservationColor(opt.key), marginTop: 0, marginLeft: 6 }]}> 
-                        <Text style={styles.consText}>{opt.label}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {/* Public Filter */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.inputLabel}>Visibility</Text>
-                <TouchableOpacity onPress={() => setTempPublicFilter('')}>
-                </TouchableOpacity>
-              </View>
-              <View>
-                {PUBLIC_OPTIONS.map(opt => (
-                  <TouchableOpacity
-                    key={`modal-public-${opt.key || 'all'}`}
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
-                    onPress={() => setTempPublicFilter(opt.key)}
-                  >
-                    <Ionicons
-                      name={tempPublicFilter === opt.key ? 'radio-button-on' : 'radio-button-off'}
-                      size={20}
-                      color={tempPublicFilter === opt.key ? '#2e7d32' : '#666'}
-                    />
-                    <Text style={[styles.statusOptionText]}>{opt.label || 'All'}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => {
-                  setTempStatusFilter('');
-                  setTempConsFilters([]);
-                  setTempPublicFilter('');
-                }}
-              >
-                <Text style={styles.cancelButtonText}>Clear Selection</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={() => {
-                  setFilterModalVisible(false);
-                  setStatusFilter(tempStatusFilter);
-                  setConsFilters(tempConsFilters);
-                  setPublicFilter(tempPublicFilter);
-                  setObsPage(1); // Reset to first page when filters change
-                }}
-              >
-                <Text style={styles.saveButtonText}>Apply</Text>
-              </TouchableOpacity>
+              </ScrollView>
             </View>
           </View>
+
+          {/* Sort Row */}
+          <View style={styles.sortRow}>
+            <Text style={styles.sortLabel}>Sort by:</Text>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.sortOptions}
+            >
+              {SORT_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={`sort-${option.key}`}
+                  style={[
+                    styles.sortOption,
+                    sortBy === option.key && styles.sortOptionActive
+                  ]}
+                  onPress={() => handleSortChange(option.key)}
+                >
+                  <Ionicons 
+                    name={getSortIcon(option.key)} 
+                    size={16} 
+                    color={sortBy === option.key ? '#2e7d32' : '#666'} 
+                  />
+                  <Text style={[
+                    styles.sortOptionText,
+                    sortBy === option.key && styles.sortOptionTextActive
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Clear Filters */}
+          {(searchQuery || statusFilter || publicFilter || sortBy !== 'po.created_at') && (
+            <TouchableOpacity style={styles.clearFiltersButtonRed} onPress={clearFilters}>
+              <Ionicons name="close-circle-outline" size={16} color="#fff" />
+              <Text style={styles.clearFiltersTextRed}>Clear Filters</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      </Modal>
+
+        {/* Observations List */}
+        {obsError ? (
+          <View style={styles.placeholderBox}>
+            <Ionicons name="alert-circle-outline" size={32} color="#F44336" />
+            <Text style={{ marginTop: 8, color: '#F44336' }}>{String(obsError)}</Text>
+            <TouchableOpacity
+              style={[styles.viewDetailsButton, { marginTop: 12 }]}
+              onPress={fetchObservations}
+            >
+              <Text style={styles.viewDetailsText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            {observations.map(item => {
+              const plantInfo = plantCache[item.plant_id] || null;
+              const commonName = plantInfo?.common_name || `Plant #${item.plant_id}`;
+              const scientificName = plantInfo?.scientific_name || '';
+              const dateStr = (item.observation_date || '').toString().split('T')[0];
+              const lat = item.latitude != null ? Number(item.latitude).toFixed(5) : '—';
+              const lon = item.longitude != null ? Number(item.longitude).toFixed(5) : '—';
+              const cons = (item.conservation_status || plantInfo?.conservation_status || '').toString();
+              const consColor = getConservationColor(cons);
+              const isPublic = item.public === 1 || item.public === true;
+              return (
+                <TouchableOpacity key={item.observation_id} style={styles.plantCard} activeOpacity={0.85}
+                  onPress={() => {
+                    setObsDetail(item);
+                    setObsDetailVisible(true);
+                  }}
+                >
+                  <View style={styles.obsHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.plantName}>{commonName}</Text>
+                      {scientificName ? <Text style={styles.scientificName}>{scientificName}</Text> : null}
+                      {cons ? (
+                        <View style={[styles.consBadge, { backgroundColor: consColor }]}>
+                          <Text style={styles.consText}>
+                            {(cons || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}> 
+                      <Text style={styles.statusText}>{(item.status || 'unknown').toUpperCase()}</Text>
+                    </View>
+                  </View>
+
+                  {item.image_url ? (
+                    <Image source={{ uri: item.image_url }} style={styles.obsImage} />
+                  ) : null}
+
+                  <View style={styles.obsMetaRow}>
+                    <Ionicons name="person-circle-outline" size={16} color="#666" />
+                    <Text style={styles.obsMetaText}>Uploader: {item.username || `User #${item.user_id}`}</Text>
+                  </View>
+                  <View style={styles.obsMetaRow}>
+                    <Ionicons name="calendar-outline" size={16} color="#666" />
+                    <Text style={styles.obsMetaText}>Date: {dateStr || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.obsMetaRow}>
+                    <Ionicons name={isPublic ? 'globe-outline' : 'lock-closed-outline'} size={16} color={isPublic ? '#2e7d32' : '#666'} />
+                    <Text style={[styles.obsMetaText, { color: isPublic ? '#2e7d32' : '#666' }]}>{isPublic ? 'Public' : 'Private'}</Text>
+                  </View>
+                  <View style={styles.obsMetaRow}>
+                    <Ionicons name="location-outline" size={16} color="#666" />
+                    <Text style={styles.obsMetaText}>Lat: {lat}  |  Lon: {lon}</Text>
+                  </View>
+                  <View style={styles.obsMetaRow}>
+                    <Ionicons name="stats-chart-outline" size={16} color="#666" />
+                    <Text style={styles.obsMetaText}>Confidence: {item.confidence_score != null ? Number(item.confidence_score).toFixed(2) : '—'}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+            
+            {observations.length === 0 && !obsLoading && (
+              <View style={styles.emptyState}>
+                <Ionicons name="eye-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyStateText}>No observations found</Text>
+                <Text style={styles.emptyStateSubtext}>
+                  {searchQuery || statusFilter || publicFilter
+                    ? 'Try adjusting your search or filters' 
+                    : 'No observations available'
+                  }
+                </Text>
+              </View>
+            )}
+
+            {observations.length > 0 && (
+              <View style={styles.paginationBar}>
+                <TouchableOpacity
+                  style={[styles.pageArrowButton, obsPage <= 1 && styles.disabledButton]}
+                  onPress={() => obsPage > 1 && setObsPage(obsPage - 1)}
+                  disabled={obsPage <= 1}
+                >
+                  <Ionicons name="chevron-back" size={20} color={obsPage <= 1 ? '#ccc' : '#2e7d32'} />
+                </TouchableOpacity>
+                
+                <Text style={styles.pageIndicator}>Page {obsPage} of {totalObsPages}</Text>
+                
+                <TouchableOpacity
+                  style={[styles.pageArrowButton, obsPage >= totalObsPages && styles.disabledButton]}
+                  onPress={() => obsPage < totalObsPages && setObsPage(obsPage + 1)}
+                  disabled={obsPage >= totalObsPages}
+                >
+                  <Ionicons name="chevron-forward" size={20} color={obsPage >= totalObsPages ? '#ccc' : '#2e7d32'} />
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        )}
+      </ScrollView>
 
       {/* Observation Details Modal */}
       <Modal

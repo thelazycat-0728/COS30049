@@ -14,6 +14,7 @@ class IoTAlertController {
       const typeFilter = req.query.type;
       const resolvedFilter = req.query.resolved;
       const sensorIdFilter = req.query.sensorId;
+      const searchQuery = req.query.search;
 
       // Validate and set size (limit)
       let size = Number(sizeQ);
@@ -60,6 +61,38 @@ class IoTAlertController {
         queryParams.push(sensorIdFilter);
       }
 
+      // Add search filter
+      if (searchQuery) {
+        baseQuery += ` AND (
+          alert_type LIKE ? OR 
+          severity LIKE ? OR 
+          description LIKE ? OR
+          CAST(sensor_id AS CHAR) LIKE ?
+        )`;
+        const searchPattern = `%${searchQuery}%`;
+        queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
+      }
+
+      // Handle sorting
+      let sortField = 'created_at';
+      let sortOrder = 'DESC';
+
+      if (req.query.sort) {
+        const validSortFields = {
+          'timestamp': 'created_at',
+          'severity': 'severity',
+          'score': 'score',
+          'type': 'alert_type'
+        };
+        
+        sortField = validSortFields[req.query.sort] || 'created_at';
+        
+        if (req.query.order) {
+          const validOrders = ['asc', 'desc', 'ASC', 'DESC'];
+          sortOrder = validOrders.includes(req.query.order.toUpperCase()) ? req.query.order.toUpperCase() : 'DESC';
+        }
+      }
+
       // Query total count
       const countQuery = `SELECT COUNT(*) AS total ${baseQuery}`;
       const [countRows] = await pool.execute(countQuery, queryParams);
@@ -78,7 +111,7 @@ class IoTAlertController {
           resolved,
           created_at
         ${baseQuery}
-        ORDER BY created_at DESC
+        ORDER BY ${sortField} ${sortOrder}
         LIMIT ? OFFSET ?
       `;
 
@@ -93,9 +126,12 @@ class IoTAlertController {
       return res.json({
         success: true,
         alerts,
-        total,
-        page: currentPage,
-        size,
+        pagination: {
+          total,
+          page: currentPage,
+          size,
+          totalPages: Math.ceil(total / size)
+        }
       });
 
     } catch (error) {

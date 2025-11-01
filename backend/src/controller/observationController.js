@@ -9,15 +9,26 @@ class ObservationController {
    */
   static async getAll(req, res) {
     try {
-      // Parse pagination params: support limit/offset or page/size (following plantController pattern)
+      // Parse pagination params: support limit/offset or page/size
       const sizeQ = req.query.limit ?? req.query.size;
       const pageQ = req.query.page;
       const offsetQ = req.query.offset;
 
-      // Parse filter parameters
-      const statusFilter = req.query.status;
-      const publicFilter = req.query.public;
-      const conservationStatusFilter = req.query.conservation_status;
+      // Parse filter, sort, and search parameters - UPDATED: removed conservation_status filter
+      const search = req.query.search || '';
+      const statusFilter = req.query.status || '';
+      const publicFilter = req.query.public || '';
+      const sortBy = req.query.sortBy || 'po.created_at';
+      const sortOrder = req.query.sortOrder || 'DESC';
+
+      // UPDATED: Simplified allowed sort fields to match frontend requirements
+      const allowedSortFields = [
+        'po.created_at', 'po.observation_date', 'p.common_name', 'po.confidence_score'
+      ];
+      const allowedSortOrders = ['ASC', 'DESC'];
+      
+      const finalSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'po.created_at';
+      const finalSortOrder = allowedSortOrders.includes(sortOrder.toUpperCase()) ? sortOrder.toUpperCase() : 'DESC';
 
       // Validate and set size (limit)
       let size = Number(sizeQ);
@@ -35,7 +46,7 @@ class ObservationController {
         }
       }
 
-      // Build base SQL query with filters
+      // Build base SQL query with filters - UPDATED: removed conservation_status filter
       let baseQuery = `
         FROM PlantObservations po 
         JOIN Plants p ON p.plant_id = po.plant_id 
@@ -44,6 +55,13 @@ class ObservationController {
       `;
       const queryParams = [];
 
+      // Add search filter
+      if (search) {
+        baseQuery += ` AND (p.common_name LIKE ? OR p.scientific_name LIKE ? OR u.username LIKE ? OR p.family LIKE ?)`;
+        const searchTerm = `%${search}%`;
+        queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
+      }
+
       // Add status filter
       if (statusFilter) {
         baseQuery += ` AND po.status = ?`;
@@ -51,20 +69,13 @@ class ObservationController {
       }
 
       // Add public filter
-      if (publicFilter !== undefined) {
-        const publicValue = (publicFilter === '1' || publicFilter === 1 || publicFilter === true) ? 1 : 0;
+      if (publicFilter !== '') {
+        const publicValue = (publicFilter === '1' || publicFilter === 'true' || publicFilter === 'public') ? 1 : 0;
         baseQuery += ` AND po.public = ?`;
         queryParams.push(publicValue);
       }
 
-      // Add conservation status filter (supports comma-separated values)
-      if (conservationStatusFilter) {
-        const statuses = conservationStatusFilter.split(',').map(s => s.trim()).filter(s => s);
-        if (statuses.length > 0) {
-          baseQuery += ` AND p.conservation_status IN (${statuses.map(() => '?').join(',')})`;
-          queryParams.push(...statuses);
-        }
-      }
+      // UPDATED: Removed conservation status filter
 
       // Query total count
       const countQuery = `SELECT COUNT(*) AS total ${baseQuery}`;
@@ -93,7 +104,7 @@ class ObservationController {
           p.conservation_status,
           u.username
         ${baseQuery}
-        ORDER BY po.created_at DESC
+        ORDER BY ${finalSortBy} ${finalSortOrder}
         LIMIT ? OFFSET ?
       `;
 
@@ -121,6 +132,7 @@ class ObservationController {
     }
   }
 
+  // ... rest of the methods remain the same (getById, create, update, delete, togglePublic, updateGeotag, removeGeotag)
   /**
    * GET /api/observations/:id
    * Get single observation
@@ -478,7 +490,6 @@ class ObservationController {
       res.status(500).json({ success: false, error: 'Failed to remove geotag' });
     }
   }
-  
 }
 
 module.exports = ObservationController;

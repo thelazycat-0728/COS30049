@@ -69,7 +69,7 @@ class SensorController {
   }
 
   /**
-   * Get all sensors
+   * Get all sensors with filtering, sorting, and search
    * @route GET /api/iot/sensors
    */
   async getAllSensors(req, res) {
@@ -95,25 +95,104 @@ class SensorController {
         }
       }
 
-      // Query total count
-      const [[countRow]] = await pool.execute('SELECT COUNT(*) AS total FROM IoTSensors');
+      // Parse filter, search, and sort parameters
+      const search = req.query.search;
+      const statusFilter = req.query.status;
+      const sortBy = req.query.sortBy || 'created_at';
+      const sortOrder = req.query.sortOrder || 'DESC';
+      
+      // Build WHERE conditions
+      const conditions = [];
+      const params = [];
+
+      // Search condition
+      if (search && search.trim()) {
+        conditions.push(`(s.sensor_name LIKE ? OR s.location_description LIKE ?)`);
+        const searchTerm = `%${search.trim()}%`;
+        params.push(searchTerm, searchTerm);
+      }
+
+      // Status filter - explicitly use s.status (sensor status)
+      if (statusFilter && statusFilter !== 'all' && statusFilter !== '') {
+        conditions.push(`s.status = ?`);
+        params.push(statusFilter);
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      // Build ORDER BY clause with validation
+      let orderByClause = 'ORDER BY ';
+      
+      // Validate sortBy and sortOrder to prevent SQL injection
+      const allowedSortFields = ['created_at', 'observation_id', 'observation_name'];
+      const allowedSortOrders = ['ASC', 'DESC'];
+      
+      const validatedSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+      const validatedSortOrder = allowedSortOrders.includes(sortOrder.toUpperCase()) ? sortOrder.toUpperCase() : 'DESC';
+      
+      // Handle different sort fields
+      switch (validatedSortBy) {
+        case 'created_at':
+          orderByClause += `s.created_at ${validatedSortOrder}`;
+          break;
+        case 'observation_id':
+          orderByClause += `s.observation_id ${validatedSortOrder}`;
+          break;
+        case 'observation_name':
+          // For observation_name, we need to join with observations and plants tables
+          // and sort by plant common_name
+          orderByClause += `p.common_name ${validatedSortOrder}`;
+          break;
+        default:
+          orderByClause += `s.created_at ${validatedSortOrder}`;
+      }
+
+      // Base query for sensors
+      let baseQuery = `
+        SELECT 
+          s.sensor_id, 
+          s.sensor_name, 
+          s.location_description, 
+          s.observation_id,
+          s.status, 
+          s.last_checked, 
+          s.created_at, 
+          s.updated_at
+        FROM IoTSensors s
+      `;
+
+      // Add joins if sorting by observation_name
+      if (validatedSortBy === 'observation_name') {
+        baseQuery += `
+          LEFT JOIN PlantObservations o ON s.observation_id = o.observation_id
+          LEFT JOIN Plants p ON o.plant_id = p.plant_id
+        `;
+      }
+
+      // Query total count - use same table aliases and conditions
+      let countQuery = `SELECT COUNT(*) AS total FROM IoTSensors s`;
+      if (validatedSortBy === 'observation_name') {
+        countQuery += `
+          LEFT JOIN PlantObservations o ON s.observation_id = o.observation_id
+          LEFT JOIN Plants p ON o.plant_id = p.plant_id
+        `;
+      }
+      countQuery += ` ${whereClause}`;
+
+      const [[countRow]] = await pool.execute(countQuery, params);
       const total = countRow?.total ?? 0;
 
-      // Fetch current page - updated to match table schema
+      // Fetch current page
+      const query = `
+        ${baseQuery}
+        ${whereClause}
+        ${orderByClause}
+        LIMIT ? OFFSET ?
+      `;
+
       const [rows] = await pool.execute(
-        `SELECT 
-          sensor_id, 
-          sensor_name, 
-          location_description, 
-          observation_id,
-          status, 
-          last_checked, 
-          created_at, 
-          updated_at
-         FROM IoTSensors
-         ORDER BY created_at DESC
-         LIMIT ? OFFSET ?`,
-        [size, offset]
+        query,
+        [...params, size, offset]
       );
 
       // Derive current page if not provided
@@ -122,9 +201,12 @@ class SensorController {
       return res.json({
         success: true,
         sensors: rows,
-        total,
-        page: currentPage,
-        size,
+        pagination: {
+          total,
+          page: currentPage,
+          size,
+          totalPages: Math.ceil(total / size)
+        }
       });
     } catch (error) {
       console.error("❌ Get all sensors error:", error);

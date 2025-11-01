@@ -32,6 +32,24 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
   const [plotLoading, setPlotLoading] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Filter and search states - matching PlantsSection structure
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('DESC');
+
+  const STATUS_OPTIONS = [
+    { key: 'all', label: 'All Status' },
+    { key: 'active', label: 'Active' },
+    { key: 'inactive', label: 'Inactive' },
+  ];
+
+  const SORT_OPTIONS = [
+    { key: 'name', label: 'Name' },
+    { key: 'created_at', label: 'Date Created' },
+    { key: 'size', label: 'Size' },
+  ];
+
   const totalModelsPages = useMemo(() => Math.max(1, Math.ceil(modelsTotal / MODELS_PAGE_SIZE)), [modelsTotal]);
 
   useEffect(() => {
@@ -42,7 +60,7 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
 
   useEffect(() => {
     loadModels();
-  }, [modelsPage]);
+  }, [modelsPage, searchQuery, statusFilter, sortBy, sortOrder]);
 
   useEffect(() => {
     let interval;
@@ -58,12 +76,36 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
 
   const loadModels = async () => {
     try {
+      setLoading(true);
       console.log('Loading models from backend...');
       const token = await getAuthToken();
+      
+      // Build query parameters matching backend expectations
       const params = new URLSearchParams({
         page: String(modelsPage),
         limit: String(MODELS_PAGE_SIZE),
       });
+
+      // Add search parameter
+      if (searchQuery) {
+        params.append('search', searchQuery);
+      }
+
+      // Add filter parameter (convert empty string to 'all')
+      const filterValue = statusFilter === 'all' ? '' : statusFilter;
+      if (filterValue) {
+        params.append('filter', filterValue);
+      }
+
+      // Add sort parameters - backend now expects sortBy and sortOrder
+      if (sortBy) {
+        params.append('sortBy', sortBy);
+      }
+      if (sortOrder) {
+        params.append('sortOrder', sortOrder);
+      }
+
+      console.log('Request params:', params.toString());
       
       const response = await fetch(`${API_URL}/admin/models?${params.toString()}`, {
         headers: {
@@ -74,13 +116,21 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
       
       if (response.ok) {
         const data = await response.json();
+        console.log('Models data received:', data.models?.length);
+        console.log('Sort parameters used:', { sortBy, sortOrder });
+        console.log('Filter parameter used:', statusFilter);
         setModels(data.models || []);
         setModelsTotal(data.pagination?.total || data.total || (data.models || []).length);
       } else {
         console.error('Failed to load models:', response.status);
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
       }
     } catch (error) {
       console.error('Error loading models:', error);
+      Alert.alert('Error', error.message || 'Failed to load models');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -189,6 +239,7 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
         Alert.alert('Success', 'Model activated successfully');
         loadModels();
       } else {
+        const data = await response.json();
         Alert.alert('Error', data.message || 'Failed to activate model');
       }
     } catch (error) {
@@ -219,6 +270,9 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
               if (response.ok) {
                 Alert.alert('Success', 'Model deleted successfully');
                 loadModels();
+              } else {
+                const data = await response.json();
+                Alert.alert('Error', data.message || 'Failed to delete model');
               }
             } catch (error) {
               console.error('Error deleting model:', error);
@@ -236,52 +290,181 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
     setPlotModalVisible(true);
   };
 
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    setModelsPage(1);
+  };
+
+  const handleFilterChange = (value) => {
+    setStatusFilter(value);
+    setModelsPage(1);
+  };
+
+  const handleSortChange = (field) => {
+    if (sortBy === field) {
+      // Toggle sort order if same field
+      setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
+    } else {
+      // New field, default to ascending
+      setSortBy(field);
+      setSortOrder('ASC');
+    }
+    setModelsPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setSortBy('created_at');
+    setSortOrder('DESC');
+    setModelsPage(1);
+  };
+
+  const getSortIcon = (field) => {
+    if (sortBy !== field) return 'swap-vertical';
+    return sortOrder === 'ASC' ? 'arrow-up' : 'arrow-down';
+  };
+
+  const openTrainModel = () => {
+    setTrainingParams({
+      epochs: '30',
+      batchSize: '32',
+      learningRate: '0.00001',
+      modelName: ''
+    });
+    setTrainingModalVisible(true);
+  };
+
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Model Management</Text>
-        <TouchableOpacity 
-          style={styles.addButton}
-          onPress={() => setTrainingModalVisible(true)}
-        >
-          <Ionicons name="add" size={15} color="white" />
-          <Text style={styles.addButtonText}>Train New Model</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Model Training */}
-      {trainingStatus?.isTraining && (
-        <View style={styles.trainingBanner}>
-          <View style={styles.trainingBannerHeader}>
-            <ActivityIndicator size="small" color="#2e7d32" />
-            <Text style={styles.trainingBannerTitle}>Training in Progress</Text>
-          </View>
-
-          <Text style={styles.trainingStageText}>
-            {trainingStatus.stage === 'stage1' ? 'Stage 1: Training Head' : 'Stage 2: Fine-Tuning'}
-          </Text>
-
-          <Text style={styles.trainingBannerText}>
-            Epoch {trainingStatus.epoch}/{trainingStatus.totalEpochs} - 
-            Progress: {trainingStatus.progress.toFixed(1)}%
-          </Text>
-          {trainingStatus.loss && (
-            <Text style={styles.trainingBannerText}>
-              Loss: {trainingStatus.loss.toFixed(4)} - 
-              Accuracy: {trainingStatus.accuracy?.toFixed(2)}%
-            </Text>
-          )}
-          <TouchableOpacity 
-            style={styles.stopTrainingButton}
-            onPress={stopTraining}
-          >
-            <Text style={styles.addButtonText}>Stop Training</Text>
-          </TouchableOpacity>
+      {/* Loading Indicator */}
+      {loading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2e7d32" />
+          <Text style={styles.loadingText}>Loading models...</Text>
         </View>
       )}
 
-      {/* Models */}
       <ScrollView style={styles.contentScroll}>
+        {/* Search and Filter Section - Matching PlantsSection structure */}
+        <View style={styles.filterSection}>
+          {/* Search Input */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search models..."
+              value={searchQuery}
+              onChangeText={handleSearch}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Filter Row */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+            {/* Status Filter */}
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterLabel}>Status:</Text>
+              <ScrollView horizontal style={styles.filterOptions}>
+                {STATUS_OPTIONS.map(option => (
+                  <TouchableOpacity
+                    key={`status-${option.key}`}
+                    style={[
+                      styles.filterOption,
+                      statusFilter === option.key && styles.filterOptionActive
+                    ]}
+                    onPress={() => handleFilterChange(option.key)}
+                  >
+                    <Text style={[
+                      styles.filterOptionText,
+                      statusFilter === option.key && styles.filterOptionTextActive
+                    ]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </ScrollView>
+
+          {/* Sort Row */}
+          <View style={styles.sortRow}>
+            <Text style={styles.sortLabel}>Sort by:</Text>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.sortOptions}
+            >
+              {SORT_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={`sort-${option.key}`}
+                  style={[
+                    styles.sortOption,
+                    sortBy === option.key && styles.sortOptionActive
+                  ]}
+                  onPress={() => handleSortChange(option.key)}
+                >
+                  <Ionicons 
+                    name={getSortIcon(option.key)} 
+                    size={16} 
+                    color={sortBy === option.key ? '#2e7d32' : '#666'} 
+                  />
+                  <Text style={[
+                    styles.sortOptionText,
+                    sortBy === option.key && styles.sortOptionTextActive
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Clear Filters */}
+          {(searchQuery || statusFilter !== 'all' || sortBy !== 'created_at' || sortOrder !== 'DESC') && (
+            <TouchableOpacity style={styles.clearFiltersButtonRed} onPress={clearFilters}>
+              <Ionicons name="close-circle-outline" size={16} color="#fff" />
+              <Text style={styles.clearFiltersTextRed}>Clear Filters</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Model Training Banner */}
+        {trainingStatus?.isTraining && (
+          <View style={styles.trainingBanner}>
+            <View style={styles.trainingBannerHeader}>
+              <ActivityIndicator size="small" color="#2e7d32" />
+              <Text style={styles.trainingBannerTitle}>Training in Progress</Text>
+            </View>
+
+            <Text style={styles.trainingStageText}>
+              {trainingStatus.stage === 'stage1' ? 'Stage 1: Training Head' : 'Stage 2: Fine-Tuning'}
+            </Text>
+
+            <Text style={styles.trainingBannerText}>
+              Epoch {trainingStatus.epoch}/{trainingStatus.totalEpochs} - 
+              Progress: {trainingStatus.progress.toFixed(1)}%
+            </Text>
+            {trainingStatus.loss && (
+              <Text style={styles.trainingBannerText}>
+                Loss: {trainingStatus.loss.toFixed(4)} - 
+                Accuracy: {trainingStatus.accuracy?.toFixed(2)}%
+              </Text>
+            )}
+            <TouchableOpacity 
+              style={styles.stopTrainingButton}
+              onPress={stopTraining}
+            >
+              <Text style={styles.addButtonText}>Stop Training</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Models List */}
         {models.map(model => (
           <View key={model.id} style={styles.plantCard}>
             <View style={styles.modelHeader}>
@@ -330,7 +513,6 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
                   <Text style={styles.addButtonText}>Delete</Text>
                 </TouchableOpacity>
               )}
-              
             </View>
           </View>
         ))}
@@ -338,35 +520,48 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
         {models.length === 0 && !loading && (
           <View style={styles.emptyState}>
             <Ionicons name="layers-outline" size={48} color="#ccc" />
-            <Text style={styles.emptyStateText}>No models added yet</Text>
-            <Text style={styles.emptyStateSubtext}>Train a model to get started</Text>
+            <Text style={styles.emptyStateText}>No models found</Text>
+            <Text style={styles.emptyStateSubtext}>
+              {searchQuery || statusFilter !== 'all'
+                ? 'Try adjusting your search or filters' 
+                : 'Train a model to get started'
+              }
+            </Text>
           </View>
         )}
 
         {models.length > 0 && (
           <View style={styles.paginationBar}>
             <TouchableOpacity
-              style={[styles.pageButton, modelsPage <= 1 && styles.disabledButton]}
+              style={[styles.pageArrowButton, modelsPage <= 1 && styles.disabledButton]}
               onPress={() => modelsPage > 1 && setModelsPage(modelsPage - 1)}
               disabled={modelsPage <= 1}
             >
-              <Ionicons name="chevron-back" size={18} color={modelsPage <= 1 ? '#fff' : '#2e7d32'} />
-              <Text style={[styles.pageButtonText, modelsPage <= 1 && styles.pageButtonTextDisabled]}>Prev</Text>
+              <Ionicons name="chevron-back" size={20} color={modelsPage <= 1 ? '#ccc' : '#2e7d32'} />
             </TouchableOpacity>
+            
             <Text style={styles.pageIndicator}>Page {modelsPage} of {totalModelsPages}</Text>
+            
             <TouchableOpacity
-              style={[styles.pageButton, modelsPage >= totalModelsPages && styles.disabledButton]}
+              style={[styles.pageArrowButton, modelsPage >= totalModelsPages && styles.disabledButton]}
               onPress={() => modelsPage < totalModelsPages && setModelsPage(modelsPage + 1)}
               disabled={modelsPage >= totalModelsPages}
             >
-              <Text style={[styles.pageButtonText, modelsPage >= totalModelsPages && styles.pageButtonTextDisabled]}>Next</Text>
-              <Ionicons name="chevron-forward" size={18} color={modelsPage >= totalModelsPages ? '#fff' : '#2e7d32'} />
+              <Ionicons name="chevron-forward" size={20} color={modelsPage >= totalModelsPages ? '#ccc' : '#2e7d32'} />
             </TouchableOpacity>
           </View>
         )}
       </ScrollView>
 
-      {/* Train Model Modal Pop Up */}
+      {/* Floating Action Button for Train Model */}
+      <TouchableOpacity 
+        style={styles.floatingActionButton}
+        onPress={openTrainModel}
+      >
+        <Ionicons name="add" size={24} color="white" />
+      </TouchableOpacity>
+
+      {/* Train Model Modal */}
       <Modal
         visible={trainingModalVisible}
         animationType="slide"

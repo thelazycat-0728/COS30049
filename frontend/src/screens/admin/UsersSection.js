@@ -23,15 +23,42 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
   const [createUserModalVisible, setCreateUserModalVisible] = useState(false);
   const [createUserSaving, setCreateUserSaving] = useState(false);
   const [createUserForm, setCreateUserForm] = useState({ username: '', email: '', password: '', role: 'public' });
-  const [usersFilterModalVisible, setUsersFilterModalVisible] = useState(false);
-  const [usersFilterRole, setUsersFilterRole] = useState(null);
-  const [usersSortKey, setUsersSortKey] = useState('name');
-  const [usersSortOrder, setUsersSortOrder] = useState('asc');
-  const [usersFilterTempRole, setUsersFilterTempRole] = useState(null);
-  const [usersSortTempKey, setUsersSortTempKey] = useState('name');
-  const [usersSortTempOrder, setUsersSortTempOrder] = useState('asc');
+  const [deleteUserModalVisible, setDeleteUserModalVisible] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [deletingUser, setDeletingUser] = useState(false);
+  
+  // Filter and search states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('DESC');
 
-  const USER_ROLES = ['public', 'expert', 'admin'];
+  const USER_ROLES = [
+    { key: '', label: 'All Roles' },
+    { key: 'public', label: 'Public' },
+    { key: 'expert', label: 'Expert' },
+    { key: 'admin', label: 'Admin' },
+  ];
+
+  const SORT_OPTIONS = [
+    { key: 'username', label: 'Username' },
+    { key: 'email', label: 'Email' },
+    { key: 'role', label: 'Role' },
+    { key: 'created_at', label: 'Date Created' },
+  ];
+
+  // Role color mapping for better visual distinction
+  const ROLE_COLORS = {
+    admin: '#d32f2f',    // Red
+    expert: '#1976d2',   // Blue
+    public: '#388e3c',   // Green
+  };
+
+  const ROLE_ICONS = {
+    admin: 'shield',
+    expert: 'school',
+    public: 'person',
+  };
 
   const totalUsersPages = useMemo(() => Math.max(1, Math.ceil(usersTotal / USERS_PAGE_SIZE)), [usersTotal]);
 
@@ -43,12 +70,7 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
 
   useEffect(() => {
     fetchUsers();
-  }, [usersPage, usersFilterRole, usersSortKey, usersSortOrder]);
-
-  const resetUsers = () => {
-    setUsers([]);
-    setUsersError(null);
-  };
+  }, [usersPage, searchQuery, roleFilter, sortBy, sortOrder]);
 
   const fetchUsers = async () => {
     if (usersLoading) return;
@@ -58,16 +80,11 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
       const params = new URLSearchParams({
         page: String(usersPage),
         limit: String(USERS_PAGE_SIZE),
+        ...(searchQuery && { search: searchQuery }),
+        ...(roleFilter && { role: roleFilter }),
+        sortBy,
+        sortOrder
       });
-      
-      // Add filter and sort parameters if available
-      if (usersFilterRole) {
-        params.append('role', usersFilterRole);
-      }
-      if (usersSortKey) {
-        params.append('sort', usersSortKey);
-        params.append('order', usersSortOrder);
-      }
 
       const res = await fetch(`${API_URL}/admin/users?${params.toString()}`, {
         headers: {
@@ -100,7 +117,7 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
 
   const handleUpdateUserRole = async (user, newRole) => {
     try {
-      if (!USER_ROLES.includes(newRole)) {
+      if (!['public', 'expert', 'admin'].includes(newRole)) {
         Alert.alert('Invalid role', 'Role must be one of: public, expert, admin');
         return;
       }
@@ -123,47 +140,73 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
     }
   };
 
-  const openUsersFilterModal = () => {
-    setUsersFilterTempRole(usersFilterRole);
-    setUsersSortTempKey(usersSortKey);
-    setUsersSortTempOrder(usersSortOrder);
-    setUsersFilterModalVisible(true);
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+    
+    try {
+      setDeletingUser(true);
+      const token = await getAuthToken();
+      const res = await fetch(`${API_URL}/admin/users/${userToDelete.user_id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Failed to delete user`);
+      
+      // Remove user from local state
+      setUsers(prev => prev.filter(u => u.user_id !== userToDelete.user_id));
+      setUsersTotal(prev => prev - 1);
+      setDeleteUserModalVisible(false);
+      setUserToDelete(null);
+      Alert.alert('Success', `User ${userToDelete.username} deleted successfully`);
+    } catch (err) {
+      console.error('Delete user error:', err);
+      Alert.alert('Error', err.message || 'Failed to delete user');
+    } finally {
+      setDeletingUser(false);
+    }
   };
 
-  const applyUsersFilterSort = () => {
-    setUsersFilterRole(usersFilterTempRole ?? null);
-    setUsersSortKey(usersSortTempKey || 'name');
-    setUsersSortOrder(usersSortTempOrder || 'asc');
-    setUsersFilterModalVisible(false);
-    setUsersPage(1); // Reset to first page when filters change
+  const confirmDeleteUser = (user) => {
+    setUserToDelete(user);
+    setDeleteUserModalVisible(true);
   };
 
-  const clearUsersFilters = () => {
-    setUsersFilterTempRole(null);
-    setUsersSortTempKey('name');
-    setUsersSortTempOrder('asc');
-    setUsersFilterRole(null);
-    setUsersSortKey('name');
-    setUsersSortOrder('asc');
+  const handleSearch = (text) => {
+    setSearchQuery(text);
     setUsersPage(1);
   };
 
-  // REMOVED: Client-side sorting that was overriding server-side pagination
-  // const usersDisplay = useMemo(() => {
-  //   let arr = [...users];
-  //   const getVal = (u) => {
-  //     if (usersSortKey === 'email') return (u.email || '').toLowerCase();
-  //     return (u.username || u.name || u.email || '').toLowerCase();
-  //   };
-  //   arr.sort((a, b) => {
-  //     const av = getVal(a);
-  //     const bv = getVal(b);
-  //     if (av < bv) return usersSortOrder === 'asc' ? -1 : 1;
-  //     if (av > bv) return usersSortOrder === 'asc' ? 1 : -1;
-  //     return 0;
-  //   });
-  //   return arr;
-  // }, [users, usersSortKey, usersSortOrder]);
+  const handleFilterChange = (value) => {
+    setRoleFilter(value);
+    setUsersPage(1);
+  };
+
+  const handleSortChange = (field) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
+    } else {
+      setSortBy(field);
+      setSortOrder('ASC');
+    }
+    setUsersPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setRoleFilter('');
+    setSortBy('created_at');
+    setSortOrder('DESC');
+    setUsersPage(1);
+  };
+
+  const getSortIcon = (field) => {
+    if (sortBy !== field) return 'swap-vertical';
+    return sortOrder === 'ASC' ? 'arrow-up' : 'arrow-down';
+  };
 
   const openCreateUser = () => {
     setCreateUserForm({ username: '', email: '', password: '', role: 'public' });
@@ -218,7 +261,7 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
       }
       setCreateUserModalVisible(false);
       setCreateUserForm({ username: '', email: '', password: '', role: 'public' });
-      fetchUsers(); // Fixed: removed { reset: true } parameter
+      fetchUsers();
       Alert.alert('Success', 'User created successfully');
     } catch (err) {
       console.error('Create user error:', err);
@@ -228,116 +271,251 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
     }
   };
 
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Users Management</Text>
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-          <TouchableOpacity 
-            style={styles.filterButton}
-            onPress={openUsersFilterModal}
-          >
-            <Ionicons name="options-outline" size={16} color="#666" />
-            <Text style={styles.filterText}>Filter & Sort</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={openCreateUser}
-          >
-            <Ionicons name="add" size={20} color="white" />
-            <Text style={styles.addButtonText}>Create User</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {usersLoading ? (
-        <View style={styles.placeholderBox}>
+      {/* Loading Indicator */}
+      {usersLoading && (
+        <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2e7d32" />
-          <Text style={{ marginTop: 12, color: '#666' }}>Loading users...</Text>
+          <Text style={styles.loadingText}>Loading users...</Text>
         </View>
-      ) : usersError ? (
-        <View style={styles.placeholderBox}>
-          <Ionicons name="alert-circle-outline" size={32} color="#F44336" />
-          <Text style={{ marginTop: 8, color: '#F44336' }}>{usersError}</Text>
-          <TouchableOpacity
-            style={[styles.addButton, { marginTop: 12 }]}
-            onPress={fetchUsers} // Fixed: removed { reset: true } parameter
-          >
-            <Ionicons name="refresh" size={16} color="white" />
-            <Text style={styles.addButtonText}>Retry</Text>
-          </TouchableOpacity>
+      )}
+
+      <ScrollView style={styles.contentScroll}>
+        {/* Search and Filter Section */}
+        <View style={styles.filterSection}>
+          {/* Search Input */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search users..."
+              value={searchQuery}
+              onChangeText={handleSearch}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Filter Row */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+            {/* Role Filter */}
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterLabel}>Role:</Text>
+              <ScrollView horizontal style={styles.filterOptions}>
+                {USER_ROLES.map(option => (
+                  <TouchableOpacity
+                    key={`role-${option.key}`}
+                    style={[
+                      styles.filterOption,
+                      roleFilter === option.key && styles.filterOptionActive
+                    ]}
+                    onPress={() => handleFilterChange(option.key)}
+                  >
+                    <Text style={[
+                      styles.filterOptionText,
+                      roleFilter === option.key && styles.filterOptionTextActive
+                    ]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </ScrollView>
+
+          {/* Sort Row */}
+          <View style={styles.sortRow}>
+            <Text style={styles.sortLabel}>Sort by:</Text>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.sortOptions}
+            >
+              {SORT_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={`sort-${option.key}`}
+                  style={[
+                    styles.sortOption,
+                    sortBy === option.key && styles.sortOptionActive
+                  ]}
+                  onPress={() => handleSortChange(option.key)}
+                >
+                  <Ionicons 
+                    name={getSortIcon(option.key)} 
+                    size={16} 
+                    color={sortBy === option.key ? '#2e7d32' : '#666'} 
+                  />
+                  <Text style={[
+                    styles.sortOptionText,
+                    sortBy === option.key && styles.sortOptionTextActive
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Clear Filters */}
+          {(searchQuery || roleFilter || sortBy !== 'created_at') && (
+            <TouchableOpacity style={styles.clearFiltersButtonRed} onPress={clearFilters}>
+              <Ionicons name="close-circle-outline" size={16} color="#fff" />
+              <Text style={styles.clearFiltersTextRed}>Clear Filters</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      ) : (
-        <ScrollView style={styles.contentScroll}>
-          {/* Fixed: Use users directly instead of usersDisplay */}
-          {users.map(item => (
-            <View key={item.user_id} style={styles.plantCard}>
-              <View style={styles.plantHeader}>
-                <Text style={styles.plantName}>
-                  {item.username || item.name || item.email || `User #${item.user_id ?? item.id}`}
+
+        {/* Users List */}
+        {usersError ? (
+          <View style={styles.placeholderBox}>
+            <Ionicons name="alert-circle-outline" size={32} color="#F44336" />
+            <Text style={{ marginTop: 8, color: '#F44336' }}>{usersError}</Text>
+            <TouchableOpacity
+              style={[styles.viewDetailsButton, { marginTop: 12 }]}
+              onPress={fetchUsers}
+            >
+              <Text style={styles.viewDetailsText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            {users.map(item => (
+              <View key={item.user_id} style={styles.userCard}>
+                {/* Header with user info and actions */}
+                <View style={styles.userCardHeader}>
+                  <View style={styles.userInfo}>
+                    <View style={styles.userAvatar}>
+                      <Ionicons 
+                        name={ROLE_ICONS[item.role] || 'person'} 
+                        size={24} 
+                        color="#fff" 
+                      />
+                    </View>
+                    <View style={styles.userDetails}>
+                      <Text style={styles.userName}>{item.username}</Text>
+                      <Text style={styles.userEmail}>{item.email}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.userActions}>
+                    <TouchableOpacity 
+                      style={styles.deleteButton}
+                      onPress={() => confirmDeleteUser(item)}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#ffffffff" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* User metadata */}
+                <View style={styles.userMeta}>
+                  <View style={[styles.roleBadge, { backgroundColor: ROLE_COLORS[item.role] }]}>
+                    <Ionicons 
+                      name={ROLE_ICONS[item.role] || 'person'} 
+                      size={12} 
+                      color="#fff" 
+                    />
+                    <Text style={styles.roleText}>{item.role}</Text>
+                  </View>
+                  <View style={styles.dateContainer}>
+                    <Ionicons name="calendar-outline" size={12} color="#666" />
+                    <Text style={styles.dateText}>{formatDate(item.created_at)}</Text>
+                  </View>
+                </View>
+
+                {/* Quick role actions */}
+                <View style={styles.roleActions}>
+                  <Text style={styles.roleActionsLabel}>Change Role:</Text>
+                  <View style={styles.roleButtons}>
+                    {['public', 'expert', 'admin'].map((role) => {
+                      const active = (item.role || 'public') === role;
+                      return (
+                        <TouchableOpacity
+                          key={role}
+                          style={[
+                            styles.roleButton,
+                            active && styles.roleButtonActive,
+                            { borderColor: ROLE_COLORS[role] }
+                          ]}
+                          onPress={() => handleUpdateUserRole(item, role)}
+                          disabled={usersLoading || active}
+                        >
+                          <Ionicons
+                            name={active ? 'checkmark-circle' : 'ellipse-outline'}
+                            size={14}
+                            color={active ? ROLE_COLORS[role] : '#666'}
+                          />
+                          <Text style={[
+                            styles.roleButtonText,
+                            active && { color: ROLE_COLORS[role] }
+                          ]}>
+                            {role}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              </View>
+            ))}
+            
+            {users.length === 0 && !usersLoading && (
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyStateText}>No users found</Text>
+                <Text style={styles.emptyStateSubtext}>
+                  {searchQuery || roleFilter
+                    ? 'Try adjusting your search or filters' 
+                    : 'Create a new user to get started'
+                  }
                 </Text>
               </View>
-              <View style={{ marginTop: 6 }}>
-                <Text style={styles.plantDescription}>Email: {item.email || '-'}</Text>
-                <Text style={styles.plantDescription}>Role: {item.role || 'public'}</Text>
-              </View>
+            )}
 
-              <View style={[styles.filterRow, { marginTop: 8 }]}>
-                {USER_ROLES.map((role) => {
-                  const active = (item.role || 'public') === role;
-                  return (
-                    <TouchableOpacity
-                      key={role}
-                      style={[styles.chip, active && styles.chipActive]}
-                      onPress={() => handleUpdateUserRole(item, role)}
-                      disabled={usersLoading}
-                    >
-                      <Ionicons
-                        name={active ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={16}
-                        color={active ? '#2e7d32' : '#666'}
-                      />
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{role}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+            {users.length > 0 && (
+              <View style={styles.paginationBar}>
+                <TouchableOpacity
+                  style={[styles.pageArrowButton, usersPage <= 1 && styles.disabledButton]}
+                  onPress={() => usersPage > 1 && setUsersPage(usersPage - 1)}
+                  disabled={usersPage <= 1}
+                >
+                  <Ionicons name="chevron-back" size={20} color={usersPage <= 1 ? '#ccc' : '#2e7d32'} />
+                </TouchableOpacity>
+                
+                <Text style={styles.pageIndicator}>Page {usersPage} of {totalUsersPages}</Text>
+                
+                <TouchableOpacity
+                  style={[styles.pageArrowButton, usersPage >= totalUsersPages && styles.disabledButton]}
+                  onPress={() => usersPage < totalUsersPages && setUsersPage(usersPage + 1)}
+                  disabled={usersPage >= totalUsersPages}
+                >
+                  <Ionicons name="chevron-forward" size={20} color={usersPage >= totalUsersPages ? '#ccc' : '#2e7d32'} />
+                </TouchableOpacity>
               </View>
-            </View>
-          ))}
-          
-          {/* Fixed: Use users.length instead of usersDisplay.length */}
-          {users.length === 0 && !usersLoading && (
-            <View style={styles.emptyState}>
-              <Ionicons name="people-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyStateText}>No users found</Text>
-              <Text style={styles.emptyStateSubtext}>Create a new user or adjust filters</Text>
-            </View>
-          )}
+            )}
+          </>
+        )}
+      </ScrollView>
 
-          {/* Fixed: Use users.length instead of usersDisplay.length */}
-          {users.length > 0 && (
-            <View style={styles.paginationBar}>
-              <TouchableOpacity
-                style={[styles.pageButton, usersPage <= 1 && styles.disabledButton]}
-                onPress={() => usersPage > 1 && setUsersPage(usersPage - 1)}
-                disabled={usersPage <= 1}
-              >
-                <Ionicons name="chevron-back" size={18} color={usersPage <= 1 ? '#fff' : '#2e7d32'} />
-                <Text style={[styles.pageButtonText, usersPage <= 1 && styles.pageButtonTextDisabled]}>Prev</Text>
-              </TouchableOpacity>
-              <Text style={styles.pageIndicator}>Page {usersPage} of {totalUsersPages}</Text>
-              <TouchableOpacity
-                style={[styles.pageButton, usersPage >= totalUsersPages && styles.disabledButton]}
-                onPress={() => usersPage < totalUsersPages && setUsersPage(usersPage + 1)}
-                disabled={usersPage >= totalUsersPages}
-              >
-                <Text style={[styles.pageButtonText, usersPage >= totalUsersPages && styles.pageButtonTextDisabled]}>Next</Text>
-                <Ionicons name="chevron-forward" size={18} color={usersPage >= totalUsersPages ? '#fff' : '#2e7d32'} />
-              </TouchableOpacity>
-            </View>
-          )}
-        </ScrollView>
-      )}
+      {/* Floating Action Button for Create User */}
+      <TouchableOpacity 
+        style={styles.floatingActionButton}
+        onPress={openCreateUser}
+      >
+        <Ionicons name="add" size={24} color="white" />
+      </TouchableOpacity>
 
       {/* Create User Modal */}
       <Modal
@@ -385,7 +563,7 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
 
               <Text style={styles.inputLabel}>Role</Text>
               <View>
-                {USER_ROLES.map((role) => (
+                {['public', 'expert', 'admin'].map((role) => (
                   <TouchableOpacity
                     key={`form-role-${role}`}
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
@@ -426,113 +604,55 @@ const UsersSection = ({ API_URL, getAuthToken }) => {
         </View>
       </Modal>
 
-      {/* Users Filter & Sort Modal */}
+      {/* Delete User Confirmation Modal */}
       <Modal
-        visible={usersFilterModalVisible}
-        animationType="slide"
+        visible={deleteUserModalVisible}
+        animationType="fade"
         transparent={true}
-        onRequestClose={() => setUsersFilterModalVisible(false)}
+        onRequestClose={() => setDeleteUserModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filter & Sort Users</Text>
-              <TouchableOpacity onPress={() => setUsersFilterModalVisible(false)}>
+              <Text style={styles.modalTitle}>Delete User</Text>
+              <TouchableOpacity onPress={() => setDeleteUserModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
-
-            <ScrollView style={styles.modalBody}>
-              <Text style={styles.inputLabel}>Filter by Role</Text>
-              <View>
-                <TouchableOpacity
-                  style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
-                  onPress={() => setUsersFilterTempRole(null)}
-                >
-                  <Ionicons
-                    name={usersFilterTempRole == null ? 'radio-button-on' : 'radio-button-off'}
-                    size={20}
-                    color={usersFilterTempRole == null ? '#2e7d32' : '#666'}
-                  />
-                  <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>All roles</Text>
-                </TouchableOpacity>
-                {USER_ROLES.map((role) => (
-                  <TouchableOpacity
-                    key={`filter-role-${role}`}
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
-                    onPress={() => setUsersFilterTempRole(role)}
-                  >
-                    <Ionicons
-                      name={usersFilterTempRole === role ? 'radio-button-on' : 'radio-button-off'}
-                      size={20}
-                      color={usersFilterTempRole === role ? '#2e7d32' : '#666'}
-                    />
-                    <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{role}</Text>
-                  </TouchableOpacity>
-                ))}
+            
+            <View style={styles.modalBody}>
+              <View style={styles.warningBox}>
+                <Ionicons name="warning" size={32} color="#dc3545" />
+                <Text style={styles.warningText}>
+                  Are you sure you want to delete user "{userToDelete?.username}"?
+                </Text>
+                <Text style={styles.warningSubtext}>
+                  This action cannot be undone. All data associated with this user will be permanently removed.
+                </Text>
               </View>
-
-              <Text style={styles.inputLabel}>Sort by</Text>
-              <View>
-                {[
-                  { key: 'name', label: 'Name' },
-                  { key: 'email', label: 'Email' },
-                ].map(opt => (
-                  <TouchableOpacity
-                    key={`sort-key-${opt.key}`}
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
-                    onPress={() => setUsersSortTempKey(opt.key)}
-                  >
-                    <Ionicons
-                      name={usersSortTempKey === opt.key ? 'radio-button-on' : 'radio-button-off'}
-                      size={20}
-                      color={usersSortTempKey === opt.key ? '#2e7d32' : '#666'}
-                    />
-                    <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{opt.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.inputLabel}>Sort order</Text>
-              <View>
-                {[
-                  { key: 'asc', label: 'Ascending (A→Z)' },
-                  { key: 'desc', label: 'Descending (Z→A)' },
-                ].map(opt => (
-                  <TouchableOpacity
-                    key={`sort-order-${opt.key}`}
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
-                    onPress={() => setUsersSortTempOrder(opt.key)}
-                  >
-                    <Ionicons
-                      name={usersSortTempOrder === opt.key ? 'radio-button-on' : 'radio-button-off'}
-                      size={20}
-                      color={usersSortTempOrder === opt.key ? '#2e7d32' : '#666'}
-                    />
-                    <Text style={{ marginLeft: 8, color: '#333', fontSize: 14 }}>{opt.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
+            </View>
 
             <View style={styles.modalActions}>
               <TouchableOpacity 
                 style={styles.cancelButton}
-                onPress={clearUsersFilters}
-              >
-                <Text style={styles.cancelButtonText}>Clear Filters</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.cancelButton}
-                onPress={() => setUsersFilterModalVisible(false)}
+                onPress={() => setDeleteUserModalVisible(false)}
+                disabled={deletingUser}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={styles.saveButton}
-                onPress={applyUsersFilterSort}
+                style={[styles.deleteButtonModal, deletingUser && styles.disabledButton]}
+                onPress={handleDeleteUser}
+                disabled={deletingUser}
               >
-                <Text style={styles.saveButtonText}>Apply</Text>
+                {deletingUser ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={16} color="white" />
+                    <Text style={styles.deleteButtonText}>Delete User</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </View>
