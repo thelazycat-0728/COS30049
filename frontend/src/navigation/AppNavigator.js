@@ -58,7 +58,8 @@ function MapStack() {
 }
 
 function MainApp() {
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [hasAdminAccess, setHasAdminAccess] = useState(false);
+  const [userRole, setUserRole] = useState('');
 
   useEffect(() => {
     const checkRole = async () => {
@@ -66,7 +67,7 @@ function MainApp() {
         // Prefer token persisted by LoginScreen
         const token = await AsyncStorage.getItem('authToken');
         if (!token) {
-          setIsAdmin(false);
+          setHasAdminAccess(false);
           return;
         }
         const res = await fetch(`${API_BASE}/user/profile`, {
@@ -74,15 +75,16 @@ function MainApp() {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) {
-          setIsAdmin(false);
+          setHasAdminAccess(false);
           return;
         }
         const data = await res.json().catch(() => null);
         const role = data?.user?.role;
         console.log('Debug: user role (AppNavigator check):', role);
-        setIsAdmin(role === 'admin');
+        setHasAdminAccess(role === 'admin' || role === 'expert');
+        setUserRole(role || '');
       } catch (e) {
-        setIsAdmin(false);
+        setHasAdminAccess(false);
       }
     };
     checkRole();
@@ -115,7 +117,15 @@ function MainApp() {
       <Tab.Screen name="Map" component={MapStack} />
       <Tab.Screen name="Upload" component={UploadScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
-      {isAdmin && <Tab.Screen name="Admin" component={AdminScreen} />}
+      {hasAdminAccess && (
+        <Tab.Screen 
+          name="Admin" 
+          component={AdminScreen}
+          options={{
+            tabBarLabel: userRole === 'admin' ? 'Admin' : 'Expert'
+          }}
+        />
+      )}
     </Tab.Navigator>
   );
 }

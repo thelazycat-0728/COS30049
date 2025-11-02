@@ -27,6 +27,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_BASE;
 const AdminScreen = () => {
   const [activeSection, setActiveSection] = useState('plants');
   const [loading, setLoading] = useState(false);
+  const [userRole, setUserRole] = useState('');
 
   // Shared state that might be needed across sections
   const [plantCache, setPlantCache] = useState({});
@@ -35,7 +36,30 @@ const AdminScreen = () => {
     return await AsyncStorage.getItem('authToken');
   };
 
-  const sections = [
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      try {
+        const token = await getAuthToken();
+        if (!token) return;
+        
+        const res = await fetch(`${API_URL}/user/profile`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          setUserRole(data?.user?.role || '');
+        }
+      } catch (error) {
+        console.error('Error fetching user role:', error);
+      }
+    };
+    
+    fetchUserRole();
+  }, []);
+
+  const allSections = [
     { id: 'plants', label: 'Plants', icon: 'leaf' },
     { id: 'observations', label: 'Observations', icon: 'eye' },
     { id: 'users', label: 'Users', icon: 'people' },
@@ -43,6 +67,13 @@ const AdminScreen = () => {
     { id: 'alerts', label: 'Alerts', icon: 'warning' },
     { id: 'models', label: 'Models', icon: 'layers'},
   ];
+
+  // Filter sections based on user role
+  const sections = userRole === 'expert' 
+    ? allSections.filter(section => 
+        ['plants', 'observations', 'sensors', 'alerts'].includes(section.id)
+      )
+    : allSections;
 
   const renderContent = () => {
     const sharedProps = {
@@ -76,7 +107,9 @@ const AdminScreen = () => {
       
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.appTitle}>Admin Dashboard</Text>
+        <Text style={styles.appTitle}>
+          {userRole === 'expert' ? 'Expert Dashboard' : 'Admin Dashboard'}
+        </Text>
       </View>
 
       {/* Navigation Menu */}
