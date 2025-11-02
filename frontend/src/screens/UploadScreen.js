@@ -639,7 +639,7 @@ const UploadScreen = () => {
           </View>
         )}
 
-        {predictions.length === 0 && (
+        {!isClassifying && predictions.length === 0 && (
           <View style={styles.actionTiles}>
             <TouchableOpacity 
               style={[styles.actionTile, styles.actionTileSecondary, (uploading || saving) && styles.actionTileDisabled]}
@@ -943,11 +943,18 @@ const UploadScreen = () => {
         {backendImageUrl && (
           <Animated.View style={[styles.actionButtons, { opacity: actionsOpacity }]}>
             <TouchableOpacity
-              style={[styles.button, styles.cancelButton]}
+              style={[
+                styles.button, 
+                styles.cancelButton,
+                (saving || isClassifying) && styles.cancelButtonDisabled
+              ]}
               onPress={cancelAndReset}
-              disabled={saving}
+              disabled={saving || isClassifying}
+              accessible
+              accessibilityRole="button"
+              accessibilityState={{ disabled: saving || isClassifying }}
             >
-              <Text style={styles.buttonText}>Cancel</Text>
+              <Text style={[styles.buttonText, (saving || isClassifying) && styles.buttonTextDisabled]}>Cancel</Text>
             </TouchableOpacity>
             
             <TouchableOpacity
@@ -1430,6 +1437,9 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 10,
     alignItems: "center",
+  },
+  cancelButtonDisabled: {
+    backgroundColor: "#CCCCCC",
   },
   classifyButton: {
   width: "100%",
