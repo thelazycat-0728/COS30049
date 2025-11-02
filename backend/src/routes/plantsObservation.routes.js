@@ -67,5 +67,11 @@ plantsObservationRouter.delete(
   ObservationController.removeGeotag
 );
 
+// NEW: GET plants for selection (available to experts and admins for observation editing)
+plantsObservationRouter.get(
+  '/metadata/plants',
+  requireExpert,
+  ObservationController.getPlants
+);
 
 module.exports = plantsObservationRouter;

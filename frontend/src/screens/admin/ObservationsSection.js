@@ -35,6 +35,12 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
   const [obsDetail, setObsDetail] = useState(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [pubSaving, setPubSaving] = useState(false);
+  
+  // NEW: Plant selection state
+  const [plantsList, setPlantsList] = useState([]);
+  const [plantsLoading, setPlantsLoading] = useState(false);
+  const [showPlantSelector, setShowPlantSelector] = useState(false);
+  const [plantSearchQuery, setPlantSearchQuery] = useState('');
 
   const totalObsPages = useMemo(() => Math.max(1, Math.ceil(obsTotal / OBS_PAGE_SIZE)), [obsTotal]);
 
@@ -68,7 +74,52 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
 
   useEffect(() => {
     fetchObservations();
-  }, [obsPage, searchQuery, statusFilter, publicFilter, sortBy, sortOrder]); // UPDATED: removed conservationFilter
+  }, [obsPage, searchQuery, statusFilter, publicFilter, sortBy, sortOrder]);
+
+  // NEW: Fetch plants for selection
+  const fetchPlants = async (search = '') => {
+    try {
+      setPlantsLoading(true);
+      const params = new URLSearchParams({
+        page: '1',
+        size: '50',
+        ...(search && { search }),
+      });
+
+      // ADD: Get authentication token
+      const token = await getAuthToken();
+      
+      const res = await fetch(`${API_URL}/observations/metadata/plants?${params.toString()}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.error || 'Failed to fetch plants');
+
+      setPlantsList(Array.isArray(data.plants) ? data.plants : []);
+    } catch (e) {
+      console.error('Plants fetch error:', e);
+      Alert.alert('Error', 'Failed to load plants');
+    } finally {
+      setPlantsLoading(false);
+    }
+  };
+
+  // NEW: Handle plant selection
+  const handlePlantSelect = (plant) => {
+    setObsDetail(prev => ({
+      ...prev,
+      plant_id: plant.plant_id,
+      plant_name: plant.common_name,
+      scientific_name: plant.scientific_name
+    }));
+    setShowPlantSelector(false);
+    setPlantSearchQuery('');
+  };
 
   const fetchObservations = async () => {
     if (obsLoading) return;
@@ -507,6 +558,21 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                     </View>
                   </View>
 
+                  {/* NEW: Plant Selection Button */}
+                  <View style={styles.detailSection}>
+                    <TouchableOpacity 
+                      style={styles.plantSelectButton}
+                      onPress={async () => {
+                        await fetchPlants();
+                        setShowPlantSelector(true);
+                      }}
+                    >
+                      <Ionicons name="leaf-outline" size={16} color="#2e7d32" />
+                      <Text style={styles.plantSelectText}>Change Plant</Text>
+                      <Ionicons name="chevron-forward" size={16} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+
                   {/* Image */}
                   {obsDetail.image_url ? (
                     <Image source={{ uri: obsDetail.image_url }} style={styles.obsImage} />
@@ -650,13 +716,20 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                   try {
                     setStatusSaving(true);
                     const token = await getAuthToken();
+                    
+                    // Prepare update data
+                    const updateData = {
+                      status: obsDetail.status,
+                      ...(obsDetail.plant_id && { plantId: obsDetail.plant_id })
+                    };
+
                     const res = await fetch(`${API_URL}/observations/${obsDetail.observation_id}`, {
                       method: 'PUT',
                       headers: {
                         'Content-Type': 'application/json',
                         ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
                       },
-                      body: JSON.stringify({ status: obsDetail.status }),
+                      body: JSON.stringify(updateData),
                     });
                     const data = await res.json();
                     if (!res.ok || !data?.success) {
@@ -664,14 +737,18 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                     }
                     // Update list item in-place
                     setObservations((prev) => prev.map((o) => (
-                      o.observation_id === obsDetail.observation_id ? { ...o, status: obsDetail.status } : o
+                      o.observation_id === obsDetail.observation_id ? { ...o, status: obsDetail.status, plant_id: obsDetail.plant_id } : o
                     )));
+                    // Update plant cache if plant was changed
+                    if (obsDetail.plant_id && !plantCache[obsDetail.plant_id]) {
+                      await preloadPlantNames([obsDetail]);
+                    }
                     // Sync detail with updated server response if available
                     if (data?.observation) setObsDetail(data.observation);
-                    Alert.alert('Success', 'Observation status updated');
+                    Alert.alert('Success', 'Observation updated successfully');
                   } catch (err) {
-                    console.error('Status update error:', err);
-                    Alert.alert('Error', String(err.message || 'Failed to update status'));
+                    console.error('Observation update error:', err);
+                    Alert.alert('Error', String(err.message || 'Failed to update observation'));
                   } finally {
                     setStatusSaving(false);
                   }
@@ -681,10 +758,98 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                 {statusSaving ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.saveButtonText}>Save Status</Text>
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* NEW: Plant Selection Modal */}
+      <Modal
+        visible={showPlantSelector}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => {
+          setShowPlantSelector(false);
+          setPlantSearchQuery('');
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { height: '80%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Plant</Text>
+              <TouchableOpacity onPress={() => {
+                setShowPlantSelector(false);
+                setPlantSearchQuery('');
+              }}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Plant Search */}
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search plants..."
+                value={plantSearchQuery}
+                onChangeText={(text) => {
+                  setPlantSearchQuery(text);
+                  fetchPlants(text);
+                }}
+              />
+              {plantSearchQuery ? (
+                <TouchableOpacity onPress={() => {
+                  setPlantSearchQuery('');
+                  fetchPlants('');
+                }}>
+                  <Ionicons name="close-circle" size={20} color="#666" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {/* Plants List */}
+            <ScrollView style={styles.modalBody}>
+              {plantsLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#2e7d32" />
+                  <Text style={styles.loadingText}>Loading plants...</Text>
+                </View>
+              ) : plantsList.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="leaf-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptyStateText}>No plants found</Text>
+                </View>
+              ) : (
+                plantsList.map(plant => (
+                  <TouchableOpacity
+                    key={plant.plant_id}
+                    style={[
+                      styles.plantOption,
+                      obsDetail?.plant_id === plant.plant_id && styles.plantOptionSelected
+                    ]}
+                    onPress={() => handlePlantSelect(plant)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.plantOptionName}>
+                        {plant.common_name || `Plant #${plant.plant_id}`}
+                      </Text>
+                      {plant.scientific_name ? (
+                        <Text style={styles.plantOptionScientific}>{plant.scientific_name}</Text>
+                      ) : null}
+                      {plant.family ? (
+                        <Text style={styles.plantOptionFamily}>{plant.family}</Text>
+                      ) : null}
+                    </View>
+                    {obsDetail?.plant_id === plant.plant_id && (
+                      <Ionicons name="checkmark" size={20} color="#2e7d32" />
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>

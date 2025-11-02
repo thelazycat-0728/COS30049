@@ -132,7 +132,87 @@ class ObservationController {
     }
   }
 
-  // ... rest of the methods remain the same (getById, create, update, delete, togglePublic, updateGeotag, removeGeotag)
+  // NEW: Get plants for selection
+  static async getPlants(req, res) {
+    try {
+      const sizeQ = req.query.limit ?? req.query.size;
+      const pageQ = req.query.page;
+      const offsetQ = req.query.offset;
+      const search = req.query.search || '';
+
+      // Validate and set size (limit)
+      let size = Number(sizeQ);
+      if (!Number.isFinite(size) || size <= 0) size = 50;
+      if (size > 100) size = 100;
+
+      // Validate and set offset
+      let offset = Number(offsetQ);
+      if (!Number.isFinite(offset) || offset < 0) {
+        const pageNum = Number(pageQ);
+        if (Number.isFinite(pageNum) && pageNum > 0) {
+          offset = (pageNum - 1) * size;
+        } else {
+          offset = 0;
+        }
+      }
+
+      // Build base query
+      let baseQuery = `FROM Plants WHERE 1=1`;
+      const queryParams = [];
+
+      // Add search filter
+      if (search) {
+        baseQuery += ` AND (common_name LIKE ? OR scientific_name LIKE ? OR family LIKE ?)`;
+        const searchTerm = `%${search}%`;
+        queryParams.push(searchTerm, searchTerm, searchTerm);
+      }
+
+      // Query total count
+      const countQuery = `SELECT COUNT(*) AS total ${baseQuery}`;
+      const [countRows] = await pool.execute(countQuery, queryParams);
+      const total = countRows[0]?.total ?? 0;
+
+      // Build main query
+      let mainQuery = `
+        SELECT 
+          plant_id,
+          scientific_name,
+          common_name,
+          family,
+          image_url,
+          description,
+          conservation_status,
+          created_at,
+          updated_at
+        ${baseQuery}
+        ORDER BY common_name, scientific_name
+        LIMIT ? OFFSET ?
+      `;
+
+      // Execute main query
+      const [plants] = await pool.execute(mainQuery, [...queryParams, size, offset]);
+
+      // Derive current page
+      const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 
+        ? Number(pageQ) 
+        : Math.floor(offset / size) + 1;
+
+      res.json({
+        success: true,
+        plants,
+        total,
+        page: currentPage,
+        size,
+      });
+    } catch (error) {
+      console.error("Get plants error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch plants",
+      });
+    }
+  }
+
   /**
    * GET /api/observations/:id
    * Get single observation
@@ -238,7 +318,6 @@ class ObservationController {
 
       if (req.file) {
         // Upload new image
-
         try {
           imageUrl = await StorageService.uploadImage(req.file);
           req.body.imageUrl = imageUrl;
@@ -266,6 +345,17 @@ class ObservationController {
           success: false,
           error: "Observation not found",
         });
+      }
+
+      // NEW: Validate plant exists if plantId is being updated
+      if (plantId) {
+        const [plants] = await pool.execute('SELECT plant_id FROM Plants WHERE plant_id = ?', [plantId]);
+        if (plants.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: "Plant not found",
+          });
+        }
       }
 
       const publicValue = (isPublic === 1 || isPublic === '1' || isPublic === true)

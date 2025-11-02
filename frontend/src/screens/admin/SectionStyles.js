@@ -1056,6 +1056,55 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
+  plantSelectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    marginBottom: 16,
+  },
+
+  plantSelectText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#2e7d32',
+    fontWeight: '500',
+  },
+
+  plantOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+
+  plantOptionSelected: {
+    backgroundColor: '#e8f5e8',
+  },
+
+  plantOptionName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+  },
+
+  plantOptionScientific: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+
+  plantOptionFamily: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
+  },
 });
 
 export default styles;
