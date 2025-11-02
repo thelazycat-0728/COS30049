@@ -10,12 +10,15 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Animated,
 } from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import MapView, { Marker } from 'react-native-maps';
 import { useNavigation } from "@react-navigation/native";
+import * as Location from 'expo-location';
 //import PlantClassifierService from "../services/PlantClassifierService";     (unused for now)
 
 import NetInfo from "@react-native-community/netinfo";
@@ -40,37 +43,38 @@ const UploadScreen = () => {
   const [saving, setSaving] = useState(false);
   const [imageSourceType, setImageSourceType] = useState(null); // 'camera' or 'file'
   const [tempImageData, setTempImageData] = useState(null); // Store image data before upload
-  const backendImageUrlRef = useRef(null);
+  // Manual location selection when EXIF GPS is missing
+  const [needsLocation, setNeedsLocation] = useState(false);
+  const [manualPin, setManualPin] = useState(null); // { lat, lon }
+  const manualPinRef = useRef(null); // live manual pin to avoid stale state reads
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchingLocation, setSearchingLocation] = useState(false);
+  // Track whether location was auto-detected from image or manually selected
+  const [locationSource, setLocationSource] = useState(null); // 'auto' | 'manual' | null
+  // UI feedback state for Change Location button active press
+  const [changeLocPressing, setChangeLocPressing] = useState(false);
+  // Animated opacity for smooth hide/remove of map and action buttons
+  const mapOpacity = useRef(new Animated.Value(1)).current;
+  const actionsOpacity = useRef(new Animated.Value(1)).current;
 
-  
-  // Helper: extract decimal coords from EXIF data for immediate preview
-  const extractCoordsFromExif = (exif) => {
-    if (!exif) return null;
-    const scope = exif.GPS ? exif.GPS : exif;
-    const latVal = scope?.GPSLatitude ?? scope?.Latitude;
-    const lonVal = scope?.GPSLongitude ?? scope?.Longitude;
-    const latRef = scope?.GPSLatitudeRef ?? scope?.LatitudeRef;
-    const lonRef = scope?.GPSLongitudeRef ?? scope?.LongitudeRef;
-    const toDec = (val, ref) => {
-      if (Array.isArray(val) && val.length >= 3) {
-        const [d, m, s] = val;
-        let dec = Number(d) + Number(m) / 60 + Number(s) / 3600;
-        if (ref === 'S' || ref === 'W') dec = -dec;
-        return dec;
+  // Multi-step navigation: AI results -> Location selection
+  const [currentStep, setCurrentStep] = useState('ai'); // 'ai' | 'location'
+  const scrollRef = useRef(null);
+  const [locationSectionY, setLocationSectionY] = useState(0);
+
+  const handleNext = () => {
+    // Only allow next when AI results are ready
+    const ready = plantName && predictions.length > 0 && !isClassifying;
+    if (!ready) return;
+    setCurrentStep('location');
+    // Smooth scroll to location section
+    requestAnimationFrame(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({ y: locationSectionY, animated: true });
       }
-      if (typeof val === 'number') {
-        let dec = val;
-        if (ref === 'S' || ref === 'W') dec = -Math.abs(dec);
-        if (ref === 'N' || ref === 'E') dec = Math.abs(dec);
-        return dec;
-      }
-      return null;
-    };
-    const lat = toDec(latVal, latRef);
-    const lon = toDec(lonVal, lonRef);
-    return (typeof lat === 'number' && typeof lon === 'number') ? { lat, lon } : null;
+    });
   };
-  // In production, prefer an https URL and load from config/env
+
   const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
   // useEffect(() => {
@@ -125,7 +129,6 @@ const UploadScreen = () => {
         method: 'POST',
         headers: {
           Accept: 'application/json',
-          // Do NOT set Content-Type here; let fetch set multipart boundary
         },
         body: formData,
       });
@@ -142,6 +145,7 @@ const UploadScreen = () => {
 
       if (coords && typeof coords.lat === 'number' && typeof coords.lon === 'number') {
         setExtractedCoords(coords);
+        setLocationSource('auto');
         setGoogleMapsUrl(data?.googleMapsUrl || null);
         setMapRegion({
           latitude: coords.lat,
@@ -150,7 +154,14 @@ const UploadScreen = () => {
           longitudeDelta: 0.02,
         });
       } else {
-        Alert.alert('No GPS data', 'No embedded GPS coordinates were found in this image.');
+        setNeedsLocation(true);
+        setMapRegion((prev) => prev || ({
+          latitude: 1.5325882484148807,
+          longitude: 110.35727946120764,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }));
+        setManualPin({ lat: 1.5325882484148807, lon: 110.35727946120764 });
       }
     return uploadedUrl;  
     } catch (err) {
@@ -206,6 +217,7 @@ const UploadScreen = () => {
       
       if (coords && typeof coords.lat === 'number' && typeof coords.lon === 'number') {
         setExtractedCoords(coords);
+        setLocationSource('auto');
         setGoogleMapsUrl(data?.googleMapsUrl || null);
         setMapRegion({
           latitude: coords.lat,
@@ -214,7 +226,14 @@ const UploadScreen = () => {
           longitudeDelta: 0.02,
         });
       } else {
-        Alert.alert('No GPS data', 'No embedded GPS coordinates were found in this image.');
+        setNeedsLocation(true);
+        setMapRegion((prev) => prev || ({
+          latitude: 1.5325882484148807,
+          longitude: 110.35727946120764,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }));
+        setManualPin({ lat: 1.5325882484148807, lon: 110.35727946120764 });
       }
       
       return uploadedUrl;
@@ -237,6 +256,13 @@ const UploadScreen = () => {
       }
       
       resetForm();
+      // Ensure at the AI step and scrolled to top for a fresh start
+      setCurrentStep('ai');
+      requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTo({ y: 0, animated: true });
+        }
+      });
 
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/*'],
@@ -272,8 +298,38 @@ const UploadScreen = () => {
   };
 
   const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    // Require device location services enabled to take photo for auto-detection purpose
+    try {
+      const servicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!servicesEnabled) {
+        Alert.alert(
+          'Enable Location Services',
+          'Location must be enabled to take a photo and auto-detect location.',
+          [
+            { text: 'Open Settings', onPress: () => Linking.openSettings?.() },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+        return;
+      }
 
+      const { status: locStatus } = await Location.requestForegroundPermissionsAsync();
+      if (locStatus !== 'granted') {
+        Alert.alert(
+          'Location Permission Required',
+          'Please allow location access to continue. You can enable it in settings.',
+          [
+            { text: 'Open Settings', onPress: () => Linking.openSettings?.() },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+        return;
+      }
+    } catch (e) {
+      console.warn('Location services check failed:', e);
+    }
+
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert(
         "Permission Required",
@@ -289,6 +345,13 @@ const UploadScreen = () => {
     }
     
     resetForm();
+    // Return to AI step and scroll to top on new capture
+    setCurrentStep('ai');
+    requestAnimationFrame(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({ y: 0, animated: true });
+      }
+    });
 
     let result = await ImagePicker.launchCameraAsync({
       allowsEditing: false,
@@ -308,17 +371,29 @@ const UploadScreen = () => {
         mimeType: asset.type || 'image/jpeg',
       });
       
-      // Show preview of coordinates if available
-      const coords = extractCoordsFromExif(asset.exif || null);
-      if (coords) {
-        setExtractedCoords(coords);
-        setGoogleMapsUrl(`https://maps.google.com/?q=${coords.lat},${coords.lon}`);
-        setMapRegion({
-          latitude: coords.lat,
-          longitude: coords.lon,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
-        });
+      // Capture current device location to auto-set coordinates
+      try {
+        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const { latitude, longitude } = position?.coords || {};
+        if (typeof latitude === 'number' && typeof longitude === 'number') {
+          const coords = { lat: latitude, lon: longitude };
+          setExtractedCoords(coords);
+          setLocationSource('auto');
+          setGoogleMapsUrl(`https://maps.google.com/?q=${coords.lat},${coords.lon}`);
+          setMapRegion({
+            latitude: coords.lat,
+            longitude: coords.lon,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
+          });
+        } else {
+          Alert.alert('Location error', 'Unable to read current location. Please try again.');
+          return;
+        }
+      } catch (err) {
+        console.error('getCurrentPositionAsync error:', err);
+        Alert.alert('Location error', 'Unable to access current location. Please try again.');
+        return;
       }
     }
   };
@@ -329,6 +404,13 @@ const UploadScreen = () => {
         Alert.alert('Missing image', 'No uploaded image URL found. Please classify an image first.');
         return;
       }
+
+      // Require login for submission (backend needs user_id via token)
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        Alert.alert('Login Required', 'Please sign in to submit observations.');
+        return;
+      }
       
       setSaving(true);
       const lat = extractedCoords?.lat ?? null;
@@ -336,8 +418,17 @@ const UploadScreen = () => {
       
       const res = await fetch(`${API_BASE}/identify/submit-observation`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ image_url: backendImageUrl, lat, lon }),
+        headers: { 
+          'Content-Type': 'application/json', 
+          Accept: 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ 
+          image_url: backendImageUrl, 
+          lat, 
+          lon, 
+          confidence_score: confidenceScore 
+        }),
       });
       
       const data = await res.json().catch(() => null);
@@ -359,6 +450,19 @@ const UploadScreen = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Check if submit button should be enabled
+  const isSubmitEnabled = () => {
+    return (
+      backendImageUrl && // Image uploaded and classified
+      plantName && // AI identification completed
+      predictions.length > 0 && // AI predictions available
+      extractedCoords && // Location confirmed
+      !saving && 
+      !isClassifying && 
+      !uploading 
+    );
   };
 
   // const classifyPlantImage = async (imageUri) => {
@@ -451,14 +555,33 @@ const UploadScreen = () => {
     }
   };
 
-  // Cancel and delete uploaded image
+  // Cancel and delete uploaded image with smooth fade-out and full state reset
   const cancelAndReset = async () => {
-    if (backendImageUrl) {
-      await deleteImageFromBackend(backendImageUrl);
+    try {
+      // Quick fade-out for map and action buttons if visible
+      Animated.parallel([
+        Animated.timing(mapOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.timing(actionsOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]).start(async () => {
+        if (backendImageUrl) {
+          await deleteImageFromBackend(backendImageUrl);
+        }
+        resetForm();
+        // Restore opacity for next time these sections appear
+        mapOpacity.setValue(1);
+        actionsOpacity.setValue(1);
+      });
+    } catch (err) {
+      console.error('cancelAndReset error:', err);
+      // Fallback: ensure form resets even if animation fails
+      if (backendImageUrl) {
+        await deleteImageFromBackend(backendImageUrl);
+      }
+      resetForm();
+      mapOpacity.setValue(1);
+      actionsOpacity.setValue(1);
     }
-    resetForm();
   };
-
 
   const resetForm = () => {
     setImage(null);
@@ -472,65 +595,87 @@ const UploadScreen = () => {
     setGoogleMapsUrl(null);
     setImageSourceType(null);
     setTempImageData(null);
+    setBackendImageUrl(null);
+    setSaving(false);
+    setUploading(false);
+    setNeedsLocation(false);
+    setManualPin(null);
+    setSearchQuery('');
+    setSearchingLocation(false);
+    setLocationSource(null);
+    setChangeLocPressing(false);
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Upload New Plant Discovery</Text>
-
+    <ScrollView 
+      ref={scrollRef}
+      style={styles.container} 
+      contentContainerStyle={styles.scrollContent}
+      scrollEnabled={!saving} // Disable scrolling when saving
+      showsVerticalScrollIndicator={!saving}
+    >
       <View style={styles.statusBar}>
-        {/*isOffline && (
+        {isOffline && (
           <View style={styles.offlineBanner}>
-            <Text style={styles.offlineText}>
-              📡 Offline Mode - AI disabled, using mock predictions
-            </Text>
-          </View>
-        )*/}
-        {/* {PlantClassifierService.isOfflineCapable() && (
-          <View style={styles.offlineCapableBanner}>
-            <Text style={styles.offlineCapableText}>✅ Offline AI Ready</Text>
-          </View>            (unused for now)
-        )} */}
-        {uploading && (
-          <View style={styles.uploadingContainer}>
-            <ActivityIndicator size="large" color="#4CAF50" />
-            <Text style={styles.classifyingText}>Processing image for location...</Text>
+            <Text style={styles.offlineText}>You are offline. Some features may not work.</Text>
           </View>
         )}
       </View>
 
-      {/* Image Upload Section */}
-      <View style={styles.uploadSection}>
+      <Text style={styles.title}>Upload New Plant Discovery</Text>
+
+      <View style={styles.uploadCard}>
+        <View style={styles.uploadCardHeaderRow}>
+          <Text style={styles.uploadCardHeader}>Add a Plant Image</Text>
+          <Text style={styles.uploadCardSubheader}>Choose a photo or take one now</Text>
+        </View>
+
         {image ? (
-          <Image source={{ uri: image }} style={styles.imagePreview} />
+          <Image source={{ uri: image }} style={styles.imagePreviewEnhanced} />
         ) : (
-          <View style={styles.uploadPlaceholder}>
-            <Text style={styles.uploadText}>Select Plant Image</Text>
+          <View style={styles.imagePlaceholderFrame}>
+            <Text style={styles.imagePlaceholderTitle}>No image selected</Text>
+            <Text style={styles.imagePlaceholderHint}>Select or capture a clear photo of the plant</Text>
           </View>
         )}
 
-        <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.button} onPress={pickFile}>
-            <Text style={styles.buttonText}>Upload from Files</Text>
-          </TouchableOpacity>
+        {predictions.length === 0 && (
+          <View style={styles.actionTiles}>
+            <TouchableOpacity 
+              style={[styles.actionTile, styles.actionTileSecondary, (uploading || saving) && styles.actionTileDisabled]}
+              onPress={pickFile}
+              disabled={uploading || saving}
+            >
+              <View style={styles.actionTileTextWrap}>
+                <Text style={[styles.actionTileTitle, (uploading || saving) && styles.actionTileTitleDisabled]}>Upload Photo</Text>
+                <Text style={styles.actionTileSubtitle}>Pick an existing photo</Text>
+              </View>
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.button} onPress={takePhoto}>
-            <Text style={styles.buttonText}>Take Photo</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Classify Plant button */}
+            <TouchableOpacity 
+              style={[styles.actionTile, styles.actionTilePrimary, (uploading || saving) && styles.actionTileDisabled]}
+              onPress={takePhoto}
+              disabled={uploading || saving}
+            >
+              <View style={styles.actionTileTextWrap}>
+                <Text style={[styles.actionTileTitleFilled, (uploading || saving) && styles.actionTileTitleDisabled]}>Take Photo</Text>
+                <Text style={styles.actionTileSubtitleFilled}>Open camera to capture</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
+      
+        <View style={[styles.stepContainer, currentStep === 'ai' ? styles.stepVisible : styles.stepHidden]}>
         {image && !isClassifying && !backendImageUrl && (
           <TouchableOpacity 
-            style={[styles.button, styles.classifyButton]} 
+            style={[styles.button, styles.classifyButton, (isOffline || saving) && styles.classifyButtonDisabled]} 
             onPress={classifyPlantViaBackend}
-            disabled={isOffline}
+            disabled={isOffline || saving}
           >
-            <Text style={styles.buttonText}>Classify Plant</Text>
+            <Text style={[styles.buttonText, (isOffline || saving) && styles.classifyButtonTextDisabled]}>Classify Plant</Text>
           </TouchableOpacity>
         )}
 
-        {/* Classification Loading */}
         {isClassifying && (
           <View style={styles.classifyingContainer}>
             <ActivityIndicator size="large" color="#4CAF50" />
@@ -538,7 +683,6 @@ const UploadScreen = () => {
           </View>
         )}
 
-        {/* AI Predictions */}
         {predictions.length > 0 && !isClassifying && (
           <View style={styles.predictionsContainer}>
             <Text style={styles.predictionsTitle}>
@@ -578,9 +722,21 @@ const UploadScreen = () => {
           </View>
         )}
 
-        {/* Location Card */}
+        {predictions.length > 0 && !isClassifying && (
+          <TouchableOpacity
+            style={[styles.nextButton, (!plantName) && styles.nextButtonDisabled]}
+            disabled={!plantName}
+            onPress={handleNext}
+          >
+            <Text style={styles.nextButtonText}>Next</Text>
+          </TouchableOpacity>
+        )}
+        </View>
+
+        <View style={[styles.stepContainer, currentStep === 'location' ? styles.stepVisible : styles.stepHidden]} onLayout={(e) => setLocationSectionY(e.nativeEvent.layout.y)}>
+
         {extractedCoords && (
-          <View style={styles.locationCard}>
+          <Animated.View style={[styles.locationCard, { opacity: mapOpacity }] }>
             <Text style={styles.locationTitle}>Extracted Location</Text>
             <Text style={styles.locationText}>Latitude: {extractedCoords.lat.toFixed(6)}</Text>
             <Text style={styles.locationText}>Longitude: {extractedCoords.lon.toFixed(6)}</Text>
@@ -589,6 +745,51 @@ const UploadScreen = () => {
                 <Text style={styles.openMapsLink}>Open in Maps</Text>
               </TouchableOpacity>
             )}
+            {(() => {
+              const isAutoDetected = locationSource === 'auto';
+              const isDisabled = !!extractedCoords && isAutoDetected; // disable when auto-detected
+              const btnStyles = [
+                styles.button,
+                styles.changeLocationButton,
+                isDisabled ? styles.changeLocationButtonDisabled : null,
+                !isDisabled && changeLocPressing ? styles.changeLocationButtonActive : null,
+                (searchingLocation || saving) && styles.changeLocationButtonDisabled
+              ];
+              return (
+                <View>
+                  <TouchableOpacity
+                    style={btnStyles}
+                    disabled={isDisabled || searchingLocation || saving}
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: isDisabled || searchingLocation || saving }}
+                    aria-disabled={isDisabled || searchingLocation || saving}
+                    onPressIn={() => !(isDisabled || searchingLocation || saving) && setChangeLocPressing(true)}
+                    onPressOut={() => setChangeLocPressing(false)}
+                    onPress={() => {
+                      if (isDisabled || searchingLocation || saving) return;
+                      try {
+                        const lat = extractedCoords?.lat;
+                        const lon = extractedCoords?.lon;
+                        if (typeof lat === 'number' && typeof lon === 'number') {
+                          const nextPin = { lat, lon };
+                          setManualPin(nextPin);
+                          manualPinRef.current = nextPin;
+                          setMapRegion({ latitude: lat, longitude: lon, latitudeDelta: 0.02, longitudeDelta: 0.02 });
+                        }
+                        setExtractedCoords(null);
+                        setNeedsLocation(true);
+                        Alert.alert('Change location', 'You can now select a new location.');
+                      } catch (err) {
+                        console.error('Change location error:', err);
+                      }
+                    }}
+                  >
+                    <Text style={[styles.buttonText, (isDisabled || searchingLocation || saving) ? styles.buttonTextDisabled : null]}>Change Location</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })()}
             <View style={styles.mapContainer}>
               {mapRegion && (
                 <MapView
@@ -600,11 +801,147 @@ const UploadScreen = () => {
                 </MapView>
               )}
             </View>
-          </View>
+          </Animated.View>
         )}
-        {/* Action Buttons */}
+
+        {!extractedCoords && backendImageUrl && (
+          <Animated.View style={[styles.manualLocationSection, { opacity: mapOpacity }]}>
+            <Text style={styles.locationTitle}>Select Location</Text>
+            <Text style={styles.instructionText}>
+              No GPS data was found. Drag the pin or tap on the map to set location, or search by place name.
+            </Text>
+
+            <View style={styles.searchRow}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search place or address (e.g., Kuching, Sarawak)"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              <TouchableOpacity
+                style={[styles.button, styles.searchButton]}
+                disabled={searchingLocation || !searchQuery.trim()}
+                onPress={async () => {
+                  try {
+                    if (!searchQuery.trim()) return;
+                    setSearchingLocation(true);
+                    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(searchQuery.trim())}&limit=1`;
+                    const res = await fetch(url, {
+                      headers: {
+                        'Accept': 'application/json',
+                        'User-Agent': 'COS30049-App/1.0 (+https://example.com)'
+                      }
+                    });
+                    const contentType = res.headers?.get?.('content-type') || '';
+                    const text = await res.text();
+                    if (!res.ok) {
+                      console.error('Nominatim HTTP error:', res.status, text?.slice(0, 200));
+                      Alert.alert('Search error', `Location service error (HTTP ${res.status}). Please try again.`);
+                      return;
+                    }
+                    let results;
+                    try {
+                      results = contentType.includes('application/json') ? JSON.parse(text) : JSON.parse(text);
+                    } catch (parseErr) {
+                      console.error('Nominatim parse error:', parseErr, 'Response preview:', text?.slice(0, 200));
+                      Alert.alert('Search error', 'Unexpected response from location service. Please try again later.');
+                      return;
+                    }
+                    if (Array.isArray(results) && results.length > 0) {
+                      const r = results[0];
+                      const latitude = parseFloat(r.lat);
+                      const longitude = parseFloat(r.lon);
+                      if (!isNaN(latitude) && !isNaN(longitude)) {
+                        const nextPin = { lat: latitude, lon: longitude };
+                        setManualPin(nextPin);
+                        manualPinRef.current = nextPin;
+                        setMapRegion({ latitude, longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 });
+                      } else {
+                        Alert.alert('No result', 'Unable to parse location coordinates from result.');
+                      }
+                    } else {
+                      Alert.alert('No result', 'No matching locations found. Try a different search.');
+                    }
+                  } catch (e) {
+                    console.error('Location search error:', e);
+                    Alert.alert('Search error', 'Failed to search location. Please try again.');
+                  } finally {
+                    setSearchingLocation(false);
+                  }
+                }}
+              >
+                <Text style={styles.buttonText}>{searchingLocation ? 'Searching...' : 'Search'}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.mapContainer}>
+              <MapView
+                style={styles.map}
+                region={mapRegion || {
+                  latitude: 1.5325882484148807,
+                  longitude: 110.35727946120764,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05,
+                }}
+                initialRegion={mapRegion || {
+                  latitude: 1.5325882484148807,
+                  longitude: 110.35727946120764,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05,
+                }}
+                onPress={(e) => {
+                  const { latitude, longitude } = e.nativeEvent.coordinate;
+                  const nextPin = { lat: latitude, lon: longitude };
+                  setManualPin(nextPin);
+                  manualPinRef.current = nextPin;
+                }}
+              >
+                {manualPin && (
+                  <Marker
+                    coordinate={{ latitude: manualPin.lat, longitude: manualPin.lon }}
+                    draggable
+                    onDragEnd={(e) => {
+                      const { latitude, longitude } = e.nativeEvent.coordinate;
+                      const nextPin = { lat: latitude, lon: longitude };
+                      setManualPin(nextPin);
+                      manualPinRef.current = nextPin;
+                    }}
+                  />
+                )}
+              </MapView>
+            </View>
+            {manualPin && (
+              <View style={{ marginTop: 10 }}>
+                <Text style={styles.locationText}>Selected Latitude: {manualPin.lat.toFixed(6)}</Text>
+                <Text style={styles.locationText}>Selected Longitude: {manualPin.lon.toFixed(6)}</Text>
+              </View>
+            )}
+            <TouchableOpacity
+              style={[styles.confirmLocationButton, (!manualPin || saving) && styles.confirmLocationButtonDisabled]}
+              disabled={!manualPin || saving}
+              onPress={() => {
+                const target = manualPinRef.current || manualPin;
+                if (!target) return;
+                setExtractedCoords(target);
+                setGoogleMapsUrl(`https://maps.google.com/?q=${target.lat},${target.lon}`);
+                setNeedsLocation(false);
+                setLocationSource('manual');
+                setMapRegion({
+                  latitude: target.lat,
+                  longitude: target.lon,
+                  latitudeDelta: 0.02,
+                  longitudeDelta: 0.02,
+                });
+                Alert.alert('Location set', 'Manual location selected.');
+              }}
+            >
+              <Text style={[styles.confirmLocationText, (!manualPin || saving) && styles.confirmLocationTextDisabled]}>Use This Location</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+        </View>
+
         {backendImageUrl && (
-          <View style={styles.actionButtons}>
+          <Animated.View style={[styles.actionButtons, { opacity: actionsOpacity }]}>
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
               onPress={cancelAndReset}
@@ -614,20 +951,24 @@ const UploadScreen = () => {
             </TouchableOpacity>
             
             <TouchableOpacity
-              style={[styles.button, styles.submitButton]}
+              style={[
+                styles.button, 
+                isSubmitEnabled() ? styles.submitButton : styles.submitButtonDisabled
+              ]}
               onPress={submitObservationToBackend}
-              disabled={saving}
+              disabled={!isSubmitEnabled()}
             >
-              <Text style={styles.buttonText}>
-                {saving ? 'Saving...' : 'Submit Observation'}
+              <Text style={[
+                styles.buttonText,
+                !isSubmitEnabled() && styles.buttonTextDisabled
+              ]}>
+                {saving ? 'Submitting...' : 'Submit Observation'}
               </Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         )}
-      </View>
 
-      {/* Form */}
-      {/* Simplified layout: form removed to focus on two primary actions */}
+      </View>
     </ScrollView>
   );
 };
@@ -667,7 +1008,8 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "bold",
     textAlign: "center",
-    marginVertical: 20,
+    marginVertical: 50,
+    color: '#2e7d32'
   },
   uploadSection: {
     alignItems: "center",
@@ -694,6 +1036,120 @@ const styles = StyleSheet.create({
   uploadText: {
     color: "#666",
     fontSize: 16,
+  },
+  uploadCard: {
+    alignSelf: 'stretch',
+    marginHorizontal: 20,
+    marginVertical: 10,
+    padding: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+  uploadCardHeaderRow: {
+    marginBottom: 12,
+    alignSelf: 'stretch',
+  },
+  uploadCardHeader: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#2e7d32',
+  },
+  uploadCardSubheader: {
+    fontSize: 14,
+    color: '#6a6a6a',
+    marginTop: 4,
+  },
+  imagePlaceholderFrame: {
+    alignSelf: 'stretch',
+    minHeight: 180,
+    borderWidth: 2,
+    borderColor: '#c8e6c9',
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f6fff7',
+    marginBottom: 18,
+    paddingVertical: 16,
+  },
+  imagePlaceholderTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#388e3c',
+  },
+  imagePlaceholderHint: {
+    fontSize: 13,
+    color: '#808080',
+    marginTop: 4,
+  },
+  imagePreviewEnhanced: {
+    alignSelf: 'stretch',
+    height: 220,
+    borderRadius: 14,
+    marginBottom: 18,
+    backgroundColor: '#f2f2f2',
+  },
+  actionTiles: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  actionTile: {
+    width: '48%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  actionTileDisabled: {
+    backgroundColor: '#eeeeee',
+    borderColor: '#dddddd',
+  },
+  actionTileTextWrap: {
+    flex: 1,
+    alignItems: 'left',
+  },
+  actionTileTitle: {
+    textAlign:"left",
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2e7d32',
+  },
+  actionTileTitleFilled: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  actionTileTitleDisabled: {
+    color: '#888',
+  },
+  actionTileSubtitle: {
+    textAlign: 'left',
+    fontSize: 13,
+    color: '#6a6a6a',
+    marginTop: 2,
+  },
+  actionTileSubtitleFilled: {
+    fontSize: 13,
+    color: '#eef7ee',
+    marginTop: 2,
+  },
+  actionTilePrimary: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  actionTileSecondary: {
+    backgroundColor: '#ffffff',
+    borderColor: '#4CAF50',
   },
   buttonRow: {
     flexDirection: "row",
@@ -819,10 +1275,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
   },
-  uploadingContainer: {
-    alignItems: "center",
-    marginVertical: 16,
-  },
   locationCard: {
     width: "100%",
     backgroundColor: "#f9f9f9",
@@ -857,6 +1309,71 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 220,
   },
+  manualLocationSection: {
+    width: "100%",
+    backgroundColor: "#f9f9f9",
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 10,
+  },
+  instructionText: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 10,
+  },
+  confirmLocationButton: {
+    backgroundColor: "#4CAF50",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  confirmLocationButtonDisabled: {
+    backgroundColor: "#cccccc",
+  },
+  confirmLocationText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  confirmLocationTextDisabled: {
+    color: "#999999",
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  searchInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 14,
+    backgroundColor: 'white',
+  },
+  searchButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  changeLocationButton: {
+    backgroundColor: '#1e88e5',
+    marginTop: 8,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  changeLocationButtonDisabled: {
+    backgroundColor: '#9bbbd3',
+    opacity: 0.7,
+  },
+  changeLocationButtonActive: {
+    backgroundColor: '#1565c0',
+  },
+  buttonTextDisabled: {
+    color: '#e0e0e0',
+  },
   actionButtons: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -866,8 +1383,47 @@ const styles = StyleSheet.create({
   submitButton: {
     backgroundColor: "#4CAF50",
     flex: 1,
-    marginLeft: 10,
+    marginLeft: 5,
     alignItems: "center",
+  },
+  submitButtonDisabled: {
+    backgroundColor: "#CCCCCC",
+    flex: 1,
+    marginLeft: 5,
+    alignItems: "center",
+  },
+  buttonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  buttonTextDisabled: {
+    color: "#999999",
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  uploadButtonDisabled: {
+    backgroundColor: "#CCCCCC",
+  },
+  uploadButtonTextDisabled: {
+    color: "#999999",
+  },
+  classifyButtonDisabled: {
+    backgroundColor: "#CCCCCC",
+  },
+  classifyButtonTextDisabled: {
+    color: "#999999",
+  },
+  changeLocationButtonDisabled: {
+    backgroundColor: "#CCCCCC",
+  },
+  changeLocationTextDisabled: {
+    color: "#999999",
+  },
+  confirmLocationButtonDisabled: {
+    backgroundColor: "#CCCCCC",
   },
   cancelButton: {
     backgroundColor: "#f44336",
@@ -876,10 +1432,54 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   classifyButton: {
-  width: "90%",
+  width: "100%",
   alignItems: "center",
   marginTop: 10,
 },
+  // Step navigation styles
+  stepContainer: {
+    width: '100%',
+  },
+  stepHidden: {
+    display: 'none',
+  },
+  stepVisible: {
+    display: 'flex',
+  },
+  nextButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    borderRadius: 10,
+    alignSelf: 'center',
+    marginTop: 16,
+    width: '100%',
+  },
+  nextButtonDisabled: {
+    backgroundColor: '#9e9e9e',
+  },
+  nextButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  backButton: {
+    backgroundColor: '#ffffff',
+    borderColor: '#4CAF50',
+    borderWidth: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  backButtonText: {
+    color: '#2e7d32',
+    fontSize: 14,
+    fontWeight: '700',
+  },
 });
 
 export default UploadScreen;
