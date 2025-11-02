@@ -2,6 +2,7 @@ const express = require('express');
 const upload = require('../middleware/upload');
 const IdentifyController = require('../controller/identifyController');
 const classificationController = require('../controller/classificationController');
+const { optionalAuth } = require('../middleware/auth');
 
 const identifyRouter = express.Router();
 
@@ -21,6 +22,7 @@ identifyRouter.post(
 // Submit observation using previously uploaded image_url and optional coords
 identifyRouter.post(
   '/submit-observation',
+  optionalAuth,
   IdentifyController.submitObservation
 );
 
