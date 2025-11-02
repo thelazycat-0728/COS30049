@@ -29,7 +29,7 @@ adminRouter.get('/train/status', auth.requireAdmin, trainingController.getTraini
 adminRouter.post('/train/stop', auth.requireAdmin, trainingController.stopTraining);
 adminRouter.get('/models', auth.requireAdmin, trainingController.getModels);
 adminRouter.delete('/models/:modelName', auth.requireAdmin, trainingController.deleteModel);
-adminRouter.get('/models/:modelName/plot', auth.requireAdmin, trainingController.getModelPlot);
+adminRouter.get('/models/:modelName/plot', trainingController.getModelPlot);
 adminRouter.patch('/models/:modelName/activate', auth.requireAdmin, trainingController.activateModel);
 adminRouter.post('/train/finish', trainingController.finishTraining);
 
