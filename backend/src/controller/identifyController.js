@@ -1,6 +1,7 @@
 const { ExifImage } = require('exif');
 const pool = require('../config/database');
 const StorageService = require('../services/storageService');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -36,10 +37,14 @@ function extractGPSFromExif(exifData) {
 }
 
 // Insert Observation (dynamic plant_id, defaults when absent)
-async function insertObservation({ user_id, plant_id, image_url, lat, lon, status }) {
-  const obsStatus = status || ((lat != null && lon != null) ? 'verified' : 'pending');
-  const uid = user_id ?? 1; // default to 1 if not provided
+async function insertObservation({ user_id, plant_id, image_url, lat, lon, status, confidence_score }) {
+  const obsStatus = 'pending';
+  const uid = user_id;
   let pid = plant_id;
+
+  if (uid == null) {
+    throw new Error('user_id is required to create an observation');
+  }
 
   if (!pid) {
     const [plants] = await pool.query('SELECT plant_id FROM Plants ORDER BY plant_id ASC LIMIT 1');
@@ -49,13 +54,72 @@ async function insertObservation({ user_id, plant_id, image_url, lat, lon, statu
     pid = plants[0].plant_id;
   }
 
+  // Parse and normalize confidence_score to 0.00–1.00
+  const parsedConfidenceScore = confidence_score != null ? 
+    (typeof confidence_score === 'number' ? confidence_score : parseFloat(confidence_score)) : null;
+
+  let validConfidenceScore = null;
+  if (parsedConfidenceScore != null) {
+    if (parsedConfidenceScore > 1 && parsedConfidenceScore <= 100) {
+      // Convert percentage (e.g., 85) to fraction (0.85)
+      validConfidenceScore = parsedConfidenceScore / 100;
+    } else if (parsedConfidenceScore >= 0 && parsedConfidenceScore <= 1) {
+      // Already a fraction
+      validConfidenceScore = parsedConfidenceScore;
+    } else if (parsedConfidenceScore > 100) {
+      validConfidenceScore = 1;
+    } else {
+      validConfidenceScore = null;
+    }
+    // Round to two decimals to fit DECIMAL(3,2)
+    validConfidenceScore = validConfidenceScore != null 
+      ? Math.round(validConfidenceScore * 100) / 100 
+      : null;
+  }
+
   const sql = `
-    INSERT INTO PlantObservations (user_id, plant_id, image_url, latitude, longitude, status, observation_date)
-    VALUES (?, ?, ?, ?, ?, ?, NOW())
+    INSERT INTO PlantObservations (user_id, plant_id, image_url, latitude, longitude, status, confidence_score, observation_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
   `;
-  const params = [uid, pid, image_url ?? null, lat ?? null, lon ?? null, obsStatus];
+  const params = [uid, pid, image_url ?? null, lat ?? null, lon ?? null, obsStatus, validConfidenceScore];
   const [result] = await pool.execute(sql, params);
   return result.insertId;
+}
+
+// Resolve plant_id using top prediction from the classifier
+async function resolvePlantIdFromImage(imageUrl) {
+  if (!imageUrl) return null;
+  const imageFullPath = path.join(__dirname, '../..', imageUrl);
+  const PYTHON_SCRIPT = path.join(__dirname, '../../ml/classify_plant.py');
+
+  const resultJson = await new Promise((resolve, reject) => {
+    const py = spawn('python', [PYTHON_SCRIPT, imageFullPath]);
+    let out = '';
+    let err = '';
+    py.stdout.on('data', (d) => { out += d.toString(); });
+    py.stderr.on('data', (d) => { err += d.toString(); });
+    py.on('close', (code) => {
+      if (code !== 0) {
+        return reject(new Error(err || 'Classification failed'));
+      }
+      resolve(out);
+    });
+    py.on('error', (e) => reject(e));
+  });
+
+  let parsed;
+  try { parsed = JSON.parse(resultJson); } catch { return null; }
+  const preds = Array.isArray(parsed?.predictions) ? parsed.predictions : [];
+  if (preds.length === 0) return null;
+  const top = preds[0];
+  const name = top?.species || top?.className || null;
+  if (!name) return null;
+
+  const [rows] = await pool.execute(
+    'SELECT plant_id FROM Plants WHERE species = ? OR common_name = ? OR scientific_name = ? LIMIT 1',
+    [name, name, name]
+  );
+  return rows && rows[0] ? rows[0].plant_id : null;
 }
 
 class IdentifyController {
@@ -201,7 +265,7 @@ class IdentifyController {
 
   static async submitObservation(req, res) {
     try {
-      const { image_url, lat, lon, user_id, plant_id, status } = req.body || {};
+      const { image_url, lat, lon, user_id, plant_id, status, confidence_score } = req.body || {};
       if (!image_url) {
         return res.status(400).json({ error: 'image_url is required' });
       }
@@ -209,26 +273,64 @@ class IdentifyController {
       const parsedLat = lat != null ? (typeof lat === 'number' ? lat : parseFloat(lat)) : null;
       const parsedLon = lon != null ? (typeof lon === 'number' ? lon : parseFloat(lon)) : null;
 
+      // Determine user_id from auth if available, else from body
+      const actualUserId = (req.user && req.user.id) ? req.user.id : (user_id != null ? user_id : null);
+
+      // Determine plant_id: prefer provided, else classify image to get top prediction and map to Plants table
+      let actualPlantId = plant_id != null ? plant_id : null;
+      let finalConfidence = confidence_score;
+      if (actualPlantId == null) {
+        try {
+          const resolvedPid = await resolvePlantIdFromImage(image_url);
+          if (resolvedPid != null) {
+            actualPlantId = resolvedPid;
+          }
+        } catch (e) {
+          console.warn('Failed to resolve plant_id via classifier:', e.message || e);
+        }
+      }
+
       const observationId = await insertObservation({
-        user_id,
-        plant_id,
+        user_id: actualUserId,
+        plant_id: actualPlantId,
         image_url,
         lat: parsedLat,
         lon: parsedLon,
         status,
+        confidence_score: finalConfidence,
       });
 
       const googleMapsUrl = (parsedLat != null && parsedLon != null)
         ? `https://maps.google.com/?q=${parsedLat},${parsedLon}`
         : null;
 
+      // Parse and normalize confidence score for response (0.00–1.00)
+      const respParsed = confidence_score != null ? 
+        (typeof confidence_score === 'number' ? confidence_score : parseFloat(confidence_score)) : null;
+      let respConfidence = null;
+      if (respParsed != null) {
+        if (respParsed > 1 && respParsed <= 100) {
+          respConfidence = respParsed / 100;
+        } else if (respParsed >= 0 && respParsed <= 1) {
+          respConfidence = respParsed;
+        } else if (respParsed > 100) {
+          respConfidence = 1;
+        } else {
+          respConfidence = null;
+        }
+        respConfidence = respConfidence != null 
+          ? Math.round(respConfidence * 100) / 100 
+          : null;
+      }
+
       return res.json({
         success: true,
         observationId,
         image_url,
         coordinates: { lat: parsedLat ?? null, lon: parsedLon ?? null },
+        confidence_score: respConfidence,
         googleMapsUrl,
-        message: 'Observation saved successfully'
+        message: 'Observation saved successfully (status: pending)'
       });
     } catch (error) {
       console.error('submitObservation error:', error);
