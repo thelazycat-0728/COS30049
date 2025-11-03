@@ -11,6 +11,7 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -63,10 +64,8 @@ const LoginScreen = ({ navigation }) => {
         }
       }
 
-      // Success: navigate to the main app
-      Alert.alert("Success", "Login successful!", [
-        { text: "OK", onPress: () => navigation.navigate("MainApp") },
-      ]);
+      // Success: navigate to the main app directly without alert
+      navigation.navigate("MainApp");
     } catch (e) {
       console.log(e);
       Alert.alert("Network error", "Unable to login. Please try again.");
@@ -117,8 +116,21 @@ const LoginScreen = ({ navigation }) => {
               />
             </View>
 
-            <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-              <Text style={styles.loginButtonText}>Sign In</Text>
+            <TouchableOpacity 
+              style={[styles.loginButton, submitting && styles.loginButtonDisabled]}
+              onPress={handleLogin}
+              disabled={submitting}
+              accessibilityState={{ disabled: submitting }}
+              accessibilityRole="button"
+            >
+              {submitting ? (
+                <View style={styles.loginButtonContent}> 
+                  <ActivityIndicator color="#fff" style={styles.loginSpinner} />
+                  <Text style={styles.loginButtonText}>Signing In...</Text>
+                </View>
+              ) : (
+                <Text style={styles.loginButtonText}>Sign In</Text>
+              )}
             </TouchableOpacity>
 
             <View style={styles.registerContainer}>
@@ -190,10 +202,21 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 20,
   },
+  loginButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  loginSpinner: {
+    marginRight: 8,
+  },
   loginButtonText: {
     color: "#ffffff",
     fontSize: 18,
     fontWeight: "bold",
+  },
+  loginButtonDisabled: {
+    opacity: 0.7,
   },
   registerContainer: {
     flexDirection: "row",
