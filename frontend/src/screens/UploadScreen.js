@@ -15,7 +15,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
+import * as FileSystem from "expo-file-system";
 import MapView, { Marker } from 'react-native-maps';
 import { useNavigation } from "@react-navigation/native";
 import * as Location from 'expo-location';
@@ -80,6 +80,40 @@ const UploadScreen = () => {
 
   const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
+  // Simple fetch wrapper with one retry for transient network failures
+  const safeFetch = async (url, options = {}, { retries = 1, delayMs = 300 } = {}) => {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      const message = String(err?.message || '');
+      if (retries > 0 && message.includes('Network request failed')) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        return safeFetch(url, options, { retries: retries - 1, delayMs });
+      }
+      throw err;
+    }
+  };
+
+  // Preflight server reachability check
+  const ensureServerReachable = async () => {
+    if (!API_BASE) {
+      Alert.alert('Configuration error', 'API base URL is not set. Please configure EXPO_PUBLIC_API_BASE.');
+      return false;
+    }
+    try {
+      const res = await safeFetch(`${API_BASE}/identify/health`, { method: 'GET' }, { retries: 1, delayMs: 300 });
+      if (!res.ok) {
+        Alert.alert('Network error', `Server health check failed (HTTP ${res.status}).`);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('Server reachability check failed:', err);
+      Alert.alert('Network error', 'Server is not reachable. Please check your connection and try again.');
+      return false;
+    }
+  };
+
   // useEffect(() => {
   //   // Pre-load the model when screen mounts
   //   PlantClassifierService.loadModel();
@@ -105,7 +139,8 @@ const UploadScreen = () => {
   // Delete image from backend
   const deleteImageFromBackend = async (imageUrl) => {
     try {
-      await fetch(`${API_BASE}/identify/delete-image`, {
+      if (!API_BASE) { return; }
+      await safeFetch(`${API_BASE}/identify/delete-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image_url: imageUrl }),
@@ -120,6 +155,12 @@ const UploadScreen = () => {
   const uploadFileToBackend = async (asset) => {
     try {
       setUploading(true);
+      if (!API_BASE) {
+        Alert.alert('Configuration error', 'API base URL is not set. Please configure EXPO_PUBLIC_API_BASE.');
+        return null;
+      }
+      const reachable = await ensureServerReachable();
+      if (!reachable) return null;
       
       const formData = new FormData();
       formData.append('image', {
@@ -128,7 +169,7 @@ const UploadScreen = () => {
         type: asset.mimeType || 'image/jpeg',
       });
 
-      const res = await fetch(`${API_BASE}/identify/extract-location`, {
+      const res = await safeFetch(`${API_BASE}/identify/extract-location`, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -177,29 +218,35 @@ const UploadScreen = () => {
   };
   
   // Upload a camera-captured image by reading base64 and posting JSON
-  const uploadBase64ToBackend = async (imageUri) => {
+  const uploadBase64ToBackend = async (imageData) => {
     try {
       setUploading(true);
-
-      let base64;
-      try {
-        base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
-      } catch (e) {
-        const res = await fetch(imageUri);
-        const blob = await res.blob();
-        base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const dataUrl = reader.result;
-            resolve(typeof dataUrl === 'string' ? dataUrl.split(',')[1] : '');
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
+      if (!API_BASE) {
+        Alert.alert('Configuration error', 'API base URL is not set. Please configure EXPO_PUBLIC_API_BASE.');
+        return null;
       }
-      const filename = `camera-${Date.now()}.jpg`;
+      const reachable = await ensureServerReachable();
+      if (!reachable) return null;
 
-      const res = await fetch(`${API_BASE}/identify/extract-location-base64`, {
+      let base64 = imageData?.base64 || null;
+      if (!base64 && imageData?.uri) {
+        try {
+          base64 = await FileSystem.readAsStringAsync(imageData.uri, { encoding: 'base64' });
+        } catch (e1) {
+          // Simple retry after a short delay to handle file write races
+          await new Promise((r) => setTimeout(r, 200));
+          base64 = await FileSystem.readAsStringAsync(imageData.uri, { encoding: 'base64' });
+        }
+      }
+
+      if (!base64) {
+        Alert.alert('Upload error', 'Unable to read image data. Please try again.');
+        return null;
+      }
+
+      const filename = imageData?.fileName || `camera-${Date.now()}.jpg`;
+
+      const res = await safeFetch(`${API_BASE}/identify/extract-location-base64`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -360,6 +407,7 @@ const UploadScreen = () => {
       allowsEditing: false,
       quality: 1,
       exif: true,
+      base64: true,
     });
 
     if (!result.canceled) {
@@ -370,6 +418,7 @@ const UploadScreen = () => {
       setTempImageData({
         uri: uri,
         exif: asset.exif,
+        base64: asset.base64,
         fileName: asset.fileName || `camera-${Date.now()}.jpg`,
         mimeType: asset.type || 'image/jpeg',
       });
@@ -511,13 +560,16 @@ const UploadScreen = () => {
         await deleteImageFromBackend(backendImageUrl);
       }
 
+      const reachable = await ensureServerReachable();
+      if (!reachable) return;
+
       let uploadedUrl = null;
 
       // Upload based on source type
       if (imageSourceType === 'file') {
         uploadedUrl = await uploadFileToBackend(tempImageData);
       } else if (imageSourceType === 'camera') {
-        uploadedUrl = await uploadBase64ToBackend(tempImageData.uri);
+        uploadedUrl = await uploadBase64ToBackend(tempImageData);
       }
 
       if (!uploadedUrl) {
@@ -531,7 +583,11 @@ const UploadScreen = () => {
       setIsClassifying(true);
       setPredictions([]);
 
-      const response = await fetch(`${API_BASE}/identify/classify`, {
+      if (!API_BASE) {
+        Alert.alert('Configuration error', 'API base URL is not set. Please configure EXPO_PUBLIC_API_BASE.');
+        return;
+      }
+      const response = await safeFetch(`${API_BASE}/identify/classify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_path: uploadedUrl }),
