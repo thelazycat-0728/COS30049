@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -301,17 +302,38 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
     return sortOrder === 'ASC' ? 'arrow-up' : 'arrow-down';
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    try {
+      setRefreshing(true);
+      await fetchPlants();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <View style={styles.section}>
       {/* Loading Indicator */}
-      {loading && (
+      {loading && !refreshing && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2e7d32" />
           <Text style={styles.loadingText}>Loading plants...</Text>
         </View>
       )}
 
-      <ScrollView style={styles.contentScroll}>
+      <ScrollView
+        style={styles.contentScroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#2e7d32']}
+            tintColor={'#2e7d32'}
+          />
+        }
+      >
         {/* Search and Filter Section - Now inside ScrollView */}
         <View style={styles.filterSection}>
           {/* Search Input */}

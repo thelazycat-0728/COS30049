@@ -8,6 +8,7 @@ import {
   Modal,
   ActivityIndicator,
   TextInput,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Line, Circle, Path, Text as SvgText } from 'react-native-svg';
@@ -380,17 +381,38 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
     return sortOrder === 'ASC' ? 'arrow-up' : 'arrow-down';
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    try {
+      setRefreshing(true);
+      await fetchSensors();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <View style={styles.section}>
       {/* Loading Indicator */}
-      {sensorsLoading && (
+      {sensorsLoading && !refreshing && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2e7d32" />
           <Text style={styles.loadingText}>Loading sensors...</Text>
         </View>
       )}
 
-      <ScrollView style={styles.contentScroll}>
+      <ScrollView
+        style={styles.contentScroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#2e7d32']}
+            tintColor={'#2e7d32'}
+          />
+        }
+      >
         {/* Search and Filter Section */}
         <View style={styles.filterSection}>
           {/* Search Input */}
