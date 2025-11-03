@@ -37,8 +37,13 @@ function extractGPSFromExif(exifData) {
 }
 
 // Insert Observation (dynamic plant_id, defaults when absent)
-async function insertObservation({ user_id, plant_id, image_url, lat, lon, status, confidence_score }) {
-  const obsStatus = 'pending';
+async function insertObservation({ user_id, plant_id, image_url, lat, lon, status, confidence_score, is_unsure }) {
+  let obsStatus = 'pending';
+  if (is_unsure === true) {
+    obsStatus = 'unsure';
+  } else if (status) {
+    obsStatus = status;
+  }  
   const uid = user_id;
   let pid = plant_id;
 
@@ -265,7 +270,7 @@ class IdentifyController {
 
   static async submitObservation(req, res) {
     try {
-      const { image_url, lat, lon, user_id, plant_id, status, confidence_score } = req.body || {};
+      const { image_url, lat, lon, user_id, plant_id, status, confidence_score, is_unsure } = req.body || {};
       if (!image_url) {
         return res.status(400).json({ error: 'image_url is required' });
       }
@@ -298,6 +303,7 @@ class IdentifyController {
         lon: parsedLon,
         status,
         confidence_score: finalConfidence,
+        is_unsure: is_unsure
       });
 
       const googleMapsUrl = (parsedLat != null && parsedLon != null)
