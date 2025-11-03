@@ -47,16 +47,20 @@ const PlantDetailScreen = ({ route }) => {
           }
         }
 
-        // Fetch all observations for this plant to render multiple pins
+        // Fetch observations for this specific plant to render multiple PUBLIC pins
         let allObs = [];
-        if (plantId) {
-          const paramsAll = new URLSearchParams({ plantId: String(plantId), limit: '1000' });
+        if (plantId != null) {
+          const paramsAll = new URLSearchParams({ plantId: String(plantId), limit: '1000', public: '1' });
           const resAll = await fetch(`${API_BASE}/observations?${paramsAll.toString()}`);
           if (resAll.ok) {
             const dataAll = await resAll.json();
-            const list = Array.isArray(dataAll?.observations) ? dataAll.observations : [];
+            const rawList = Array.isArray(dataAll?.observations) ? dataAll.observations : [];
+            // Enforce client-side filters: by plant and public flag
+            const filteredByPlant = rawList.filter((o) => Number(o?.plant_id) === Number(plantId));
+            const filteredPublic = filteredByPlant.filter((o) => o?.public === 1 || o?.public === true);
             // Keep only observations with valid numeric coordinates
-            allObs = list.filter((o) => o?.latitude != null && o?.longitude != null)
+            allObs = filteredPublic
+              .filter((o) => o?.latitude != null && o?.longitude != null)
               .map((o) => ({
                 id: o.observation_id,
                 latitude: Number(o.latitude),
@@ -74,10 +78,8 @@ const PlantDetailScreen = ({ route }) => {
           setObservation(obs);
           setObsLocations(allObs);
 
-          // Compute map region centered on available points
-          const baseLat = obs?.latitude != null ? Number(obs.latitude) : (plant?.coordinates?.lat != null ? Number(plant.coordinates.lat) : null);
-          const baseLon = obs?.longitude != null ? Number(obs.longitude) : (plant?.coordinates?.lon != null ? Number(plant.coordinates.lon) : null);
-          const points = allObs.length ? allObs : (baseLat != null && baseLon != null ? [{ latitude: baseLat, longitude: baseLon }] : []);
+          // Compute map region centered on available public points only
+          const points = allObs;
           if (points.length) {
             const lats = points.map(p => p.latitude);
             const lons = points.map(p => p.longitude);
@@ -182,19 +184,13 @@ const PlantDetailScreen = ({ route }) => {
 
             <View style={styles.infoSection}>
               <Text style={styles.sectionTitle}>Location</Text>
-              {((mapRegion && Number.isFinite(mapRegion.latitude) && Number.isFinite(mapRegion.longitude)) || (latitude != null && longitude != null)) ? (
+              {(mapRegion && Number.isFinite(mapRegion.latitude) && Number.isFinite(mapRegion.longitude)) ? (
                 <View style={styles.mapContainer}>
                   <MapView
                     style={styles.map}
-                    initialRegion={mapRegion || {
-                      latitude: latitude,
-                      longitude: longitude,
-                      latitudeDelta: 0.04,
-                      longitudeDelta: 0.04,
-                    }}
+                    initialRegion={mapRegion}
                   >
-                    {(obsLocations.length ? obsLocations : (latitude != null && longitude != null ? [{ latitude, longitude, id: 'single' }] : []))
-                      .map((p) => (
+                    {obsLocations.map((p) => (
                         <Marker
                           key={`obs-${p.id ?? `${p.latitude}-${p.longitude}`}`}
                           coordinate={{ latitude: p.latitude, longitude: p.longitude }}
@@ -210,7 +206,7 @@ const PlantDetailScreen = ({ route }) => {
                 </View>
               ) : (
                 <View style={styles.placeholderBox}>
-                  <Text style={{ color: '#666' }}>No known coordinates for this plant</Text>
+                  <Text style={{ color: '#666' }}>No public coordinates for this plant</Text>
                 </View>
               )}
             </View>

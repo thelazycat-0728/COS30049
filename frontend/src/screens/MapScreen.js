@@ -1,4 +1,3 @@
-// src/screens/MapScreen.js - Updated with navigation, App.js-style filters, and MapView
 import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
@@ -16,7 +15,6 @@ import {
   Pressable,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-// Removed: PROVIDER_GOOGLE
 import MapView, { Marker, Heatmap } from 'react-native-maps';
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 import * as Location from 'expo-location';
@@ -26,11 +24,8 @@ const MapScreen = () => {
   const navigation = useNavigation();
   const [searchText, setSearchText] = useState('');
   const mapRef = useRef(null);
-  // Removed unused markerRefs (previously for programmatic callouts)
-  // Filters (replicated from image-location-app/App.js)
-  const ALL_STATUSES = ['least_concern', 'near_threatened', 'vulnerable'];
+  const ALL_STATUSES = ['least_concern', 'near_threatened', 'vulnerable','endangered','critically_endangered'];
   const [filterVisible, setFilterVisible] = useState(false);
-  // Plant family multi-select
   const [filterFamilies, setFilterFamilies] = useState([]);
   const [familyOptions, setFamilyOptions] = useState([]);
   const [familyDropdownVisible, setFamilyDropdownVisible] = useState(false);
@@ -55,7 +50,6 @@ const MapScreen = () => {
     longitudeDelta: 0.05,
   });
   const [pinCoords, setPinCoords] = useState(null);
-  // Heatmap state (matching image-location-app/App.js)
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatRadius, setHeatRadius] = useState(40);
   const [heatOpacity, setHeatOpacity] = useState(0.7);
@@ -68,7 +62,7 @@ const MapScreen = () => {
   const [densityMax, setDensityMax] = useState(1);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [hasAutoFitted, setHasAutoFitted] = useState(false);
-  const [pendingSelection, setPendingSelection] = useState(null); // { loc, mapped }
+  const [pendingSelection, setPendingSelection] = useState(null);
 
   const withTimeout = (promise, ms) =>
     new Promise((resolve, reject) => {
@@ -202,8 +196,20 @@ const MapScreen = () => {
       // Keep only items with valid coordinates
       const withCoords = list.filter((loc) => loc?.coordinates && typeof loc.coordinates.lat === 'number' && typeof loc.coordinates.lon === 'number');
       const filteredCoords = selFamilies.length > 1 ? withCoords.filter((loc) => selFamilies.includes(loc?.plant?.family)) : withCoords;
-      setLocations(filteredCoords);
-      setResultsCount(filteredCoords.length);
+
+      // Apply search filter by scientific name or family (case-insensitive)
+      const q = (searchText || '').trim().toLowerCase();
+      const finalFiltered = q
+        ? filteredCoords.filter((loc) => {
+            const sci = (loc?.plant?.scientific_name || '').toLowerCase();
+            const fam = (loc?.plant?.family || '').toLowerCase();
+            const common = (loc?.plant?.common_name || '').toLowerCase();
+            return sci.includes(q) || fam.includes(q) || common.includes(q);
+          })
+        : filteredCoords;
+
+      setLocations(finalFiltered);
+      setResultsCount(finalFiltered.length);
 
       // Auto-fit once to include all markers, unless user has interacted
       if (withCoords.length > 0 && !hasUserInteracted && !hasAutoFitted) {
@@ -217,7 +223,7 @@ const MapScreen = () => {
         const centerLon = (minLon + maxLon) / 2;
         const latSpan = Math.max(0.01, maxLat - minLat);
         const lonSpan = Math.max(0.01, maxLon - minLon);
-        const paddingFactor = 1.4; // add some padding around extremes
+        const paddingFactor = 1.4;
         const nextRegion = {
           latitude: centerLat,
           longitude: centerLon,
@@ -236,6 +242,14 @@ const MapScreen = () => {
     }
   };
 
+  const goToSearchResult = () => {
+    const q = (searchText || '').trim();
+    if (!q) return;
+    const target = Array.isArray(locations) && locations.length > 0 ? locations[0] : null;
+    if (!target) return;
+    handleLocationPress(target);
+  };
+
   // Initial markers fetch
   useEffect(() => {
     fetchLocations();
@@ -244,13 +258,13 @@ const MapScreen = () => {
   // Refetch markers when filters change
   useEffect(() => {
     fetchLocations();
-  }, [filterFamilies, filterStatuses, filterStartDate, filterEndDate]);
+  }, [filterFamilies, filterStatuses, filterStartDate, filterEndDate, searchText]);
 
   useEffect(() => {
     if (showHeatmap && mapRegion) {
       fetchHeatmapDensity();
     }
-  }, [showHeatmap, mapRegion]); // Added mapRegion dependency for better map interaction
+  }, [showHeatmap, mapRegion]); 
 
   const renderHeatmapLayer = ({ gradient, radius, opacity, region }) => {
     const filtered = densityPoints.filter((p) => {
@@ -292,7 +306,6 @@ const MapScreen = () => {
   };
 
   const handleLocationPress = (loc) => {
-    // Map backend location to card-friendly shape
     const mapped = {
       image: loc.image_url || null,
       name: loc.plant?.common_name || 'Unknown',
@@ -301,7 +314,7 @@ const MapScreen = () => {
       observationId: loc.observation_id,
       coordinates: loc.coordinates,
     };
-    // Hide any existing card while we move the map
+
     setShowPlantCard(false);
     setSelectedPlant(null);
     setHasUserInteracted(true);
@@ -326,8 +339,6 @@ const MapScreen = () => {
 
   const handleViewDetails = () => {
     closePlantCard();
-    // Navigate to a plant detail screen (you'll need to create this)
-    // Assumes 'PlantDetail' is a valid route name in your navigator setup
     navigation.navigate('PlantDetailScreen', { plant: selectedPlant });
   };
 
@@ -363,9 +374,6 @@ const MapScreen = () => {
       return;
     }
     setFilterVisible(false);
-    // Filters are already triggering a fetchLocations via useEffect
-    // The heatmap fetch is also triggered via mapRegion change and showHeatmap toggle
-    // or by the useEffect watching showHeatmap and mapRegion
   };
 
   // Quick date range presets
@@ -410,7 +418,6 @@ const MapScreen = () => {
     setDatePreset(preset);
   };
 
-  // Family dropdown helpers
   const openFamilyDropdown = () => {
     setTempFilterFamilies(filterFamilies);
     setFamilyDropdownVisible(true);
@@ -432,15 +439,8 @@ const MapScreen = () => {
   const clearAllFamilies = () => {
     setTempFilterFamilies([]);
   };
-  const removeFamily = (fam) => {
-    setFilterFamilies((prev) => prev.filter((f) => f !== fam));
-  };
+  
 
-  const removeStatus = (status) => {
-    setFilterStatuses((prev) => prev.filter((s) => s !== status));
-  };
-
-  // Fetch all families once for dropdown options
   const fetchFamilyOptions = async () => {
     try {
       const res = await fetch(`${API_BASE}/map/locations/public`);
@@ -451,7 +451,6 @@ const MapScreen = () => {
       setFamilyOptions(families);
     } catch (err) {
       console.warn('Unable to load family options:', err?.message || err);
-      // Fallback: derive from current locations if available
       setFamilyOptions((prev) => {
         const families = Array.from(new Set(locations.map((loc) => (loc?.plant?.family || '').trim()).filter(Boolean))).sort();
         return families.length ? families : prev;
@@ -466,87 +465,56 @@ const MapScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      
-      {/* Header */}
+
       <View style={styles.header}>
         <View style={styles.searchContainer}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search plants or locations"
+            placeholder="Search the plants"
             value={searchText}
             onChangeText={setSearchText}
           />
           <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+          {Boolean(searchText) && locations.length > 0 && (
+            <TouchableOpacity
+              onPress={goToSearchResult}
+              accessibilityRole="button"
+              accessibilityLabel="Go to first matching location"
+              style={styles.jumpSearchBtn}
+            >
+              <Ionicons name="navigate-outline" size={20} color="#2e7d32" />
+            </TouchableOpacity>
+          )}
+          {Boolean(searchText) && (
+            <TouchableOpacity
+              onPress={() => setSearchText('')}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              style={styles.clearSearchBtn}
+            >
+              <Ionicons name="close-circle" size={20} color="#888" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
-      {/* Title Section */}
       <View style={styles.titleSection}>
         <Text style={styles.appTitle}>Plant Map</Text>
         <TouchableOpacity style={styles.filterButton} onPress={() => setFilterVisible(true)}>
-          <Ionicons name="options-outline" size={18} color="#666" />
+          <Ionicons name="options-outline" size={18} color="#2e7d32" />
           <Text style={styles.filterText}>Filter</Text>
+          <View style={styles.filterResultsBadge}>
+            <Ionicons name="leaf-outline" size={14} style={styles.filterResultsIcon} />
+            <Text style={styles.filterResultsText}>{resultsCount} results</Text>
+          </View>
         </TouchableOpacity>
       </View>
 
-      {/* Applied Filters Bar */}
-      {(filterFamilies.length || filterStatuses.length || datePreset) && (
-        <View style={styles.filtersBar} accessible accessibilityLabel="Applied filters">
-          <Text style={styles.filtersLabel}>Applied Filters:</Text>
-          <View style={styles.chip}><Text style={styles.chipText}>Results: {resultsCount}</Text></View>
-          {datePreset ? (
-            <TouchableOpacity
-              style={styles.chip}
-              onPress={() => { setDatePreset(null); setFilterStartDate(''); setFilterEndDate(''); }}
-              accessibilityRole="button"
-              accessibilityLabel="Remove date range filter"
-            >
-              <Text style={styles.chipText}>Date Range: {(
-                {
-                  today: 'Today',
-                  last7: 'Last 7 days',
-                  last30: 'Last 30 days',
-                  last90: 'Last 90 days',
-                  thisMonth: 'This month',
-                }[datePreset]
-              )} ✕</Text>
-            </TouchableOpacity>
-          ) : null}
-          {filterFamilies.map((fam, i) => (
-            <TouchableOpacity
-              key={`fam-chip-${fam}-${i}`}
-              style={styles.chip}
-              onPress={() => removeFamily(fam)}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove family ${fam}`}
-            >
-              <Text style={styles.chipText}>Family: {fam} ✕</Text>
-            </TouchableOpacity>
-          ))}
-          {filterStatuses.map((s, i) => (
-            <TouchableOpacity
-              key={`chip-${s}-${i}`}
-              style={styles.chip}
-              onPress={() => removeStatus(s)}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove status ${s}`}
-            >
-              <Text style={styles.chipText}>Status: {s} ✕</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={styles.clearBtn} onPress={clearFilters} accessibilityRole="button" accessibilityLabel="Clear filters">
-            <Text style={styles.clearBtnText}>Clear Filters</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Map View */}
       <View style={styles.mapContainer} onLayout={(e) => setMapLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
         <MapView
           ref={mapRef}
           style={styles.map}
           initialRegion={mapRegion}
-          // Removed: provider={Platform.OS === 'web' ? undefined : PROVIDER_GOOGLE}
           onRegionChangeComplete={(r) => { 
             setMapRegion(r);
             setHasUserInteracted(true);
@@ -556,7 +524,6 @@ const MapScreen = () => {
               const targetLon = pendingSelection.loc.coordinates.lon;
               const closeEnough = Math.abs(r.latitude - targetLat) < 0.0005 && Math.abs(r.longitude - targetLon) < 0.0005;
               if (closeEnough) {
-                // After the map centers, show the card anchored over the pin
                 showCardAfterCenter(pendingSelection.loc, pendingSelection.mapped);
               }
             }
@@ -567,23 +534,21 @@ const MapScreen = () => {
             setPinCoords({ latitude, longitude });
           }}
         >
-          {/* Heatmap overlay */}
+
           {showHeatmap && densityPoints.length > 0 && (
             renderHeatmapLayer({ gradient: heatGradient, radius: heatRadius, opacity: heatOpacity, region: mapRegion })
           )}
 
-          {/* Dynamic markers from backend (hidden while heatmap to reduce clutter) */}
           {!showHeatmap && locations.map((loc) => (
             <Marker
               key={`loc-${loc.observation_id}-${loc.plant_id}`}
               coordinate={{ latitude: loc.coordinates.lat, longitude: loc.coordinates.lon }}
               onPress={() => handleLocationPress(loc)}
+              accessibilityLabel={`Location for ${loc?.plant?.common_name || 'plant'} observation`}
+              pinColor="#ff0000ff"
             />
           ))}
 
-          {/* Close card when tapping empty map area */}
-          
-          {/* User-dropped pin */}
           {pinCoords && (
             <Marker
               coordinate={pinCoords}
@@ -592,10 +557,12 @@ const MapScreen = () => {
                 const { latitude, longitude } = e.nativeEvent.coordinate;
                 setPinCoords({ latitude, longitude });
               }}
+              accessibilityLabel="Dropped pin"
+              pinColor="#3dc2ffff"
             />
           )}
         </MapView>
-        {/* Dismiss card by tapping anywhere outside the card */}
+
         {showPlantCard && (
           <Pressable
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
@@ -619,7 +586,7 @@ const MapScreen = () => {
               }
             }}
           >
-            {/* Pointer visually anchored to the tapped pin's x-position */}
+
             <View
               style={[
                 styles.cardPointer,
@@ -685,58 +652,7 @@ const MapScreen = () => {
         )}
       </View>
 
-      {/* Location Button */}
-      <TouchableOpacity
-        style={styles.locationButton}
-        onPress={async () => {
-          try {
-            let perm = await Location.getForegroundPermissionsAsync();
-            if (perm.status !== 'granted') {
-              const req = await Location.requestForegroundPermissionsAsync();
-              if (req.status !== 'granted') return;
-            }
-            const last = await Location.getLastKnownPositionAsync();
-            const accuracy = Platform.OS === 'android' ? Location.Accuracy.Balanced : Location.Accuracy.High;
-            let loc = null;
-            if (last) {
-              const regionA = {
-                latitude: last.coords.latitude,
-                longitude: last.coords.longitude,
-                latitudeDelta: 0.02,
-                longitudeDelta: 0.02,
-              };
-              if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
-                mapRef.current.animateToRegion(regionA, 600);
-              }
-              setMapRegion(regionA);
-              setPinCoords({ latitude: regionA.latitude, longitude: regionA.longitude });
-            }
-            try {
-              loc = await withTimeout(Location.getCurrentPositionAsync({ accuracy }), 6000);
-            } catch (e) {}
-            const final = loc || last;
-            if (!final) return;
-            const regionB = {
-              latitude: final.coords.latitude,
-              longitude: final.coords.longitude,
-              latitudeDelta: 0.02,
-              longitudeDelta: 0.02,
-            };
-            if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
-              mapRef.current.animateToRegion(regionB, 600);
-            }
-            setMapRegion(regionB);
-            setPinCoords({ latitude: regionB.latitude, longitude: regionB.longitude });
-          } catch (err) {
-            console.warn('Failed to recenter:', err?.message || err);
-          }
-        }}
-      >
-        <Text style={styles.locationIcon}>📍</Text>
-      </TouchableOpacity>
-
-      {/* Heatmap toggle */}
-      <View style={{ paddingHorizontal: 20, marginTop: 6, marginBottom: 12 }}>
+      <View style={styles.controlsRow}>
         <TouchableOpacity
           onPress={() => {
             setShowHeatmap((v) => {
@@ -747,21 +663,72 @@ const MapScreen = () => {
               return next;
             });
           }}
-          style={{
-            alignSelf: 'flex-start',
-            backgroundColor: showHeatmap ? '#1565c0' : '#e3f2fd',
-            borderColor: '#90caf9',
-            borderWidth: 1,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            borderRadius: 16,
-          }}
+          style={[styles.heatmapToggle, showHeatmap && styles.heatmapToggleActive]}
+          accessibilityRole="button"
+          accessibilityLabel={showHeatmap ? 'Hide heatmap overlay' : 'Show heatmap overlay'}
         >
-          <Text style={{ color: showHeatmap ? '#fff' : '#1565c0' }}>{showHeatmap ? 'Hide Heatmap' : 'Show Heatmap'}</Text>
+          <Ionicons
+            name="stats-chart"
+            size={16}
+            style={[styles.heatmapToggleIcon, showHeatmap && styles.heatmapToggleIconActive]}
+          />
+          <Text style={[styles.heatmapToggleText, showHeatmap && styles.heatmapToggleTextActive]}>
+            {showHeatmap ? 'Heatmap On' : 'Heatmap Off'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.locationButton, styles.locationButtonInline]}
+          onPress={async () => {
+            try {
+              let perm = await Location.getForegroundPermissionsAsync();
+              if (perm.status !== 'granted') {
+                const req = await Location.requestForegroundPermissionsAsync();
+                if (req.status !== 'granted') return;
+              }
+              const last = await Location.getLastKnownPositionAsync();
+              const accuracy = Platform.OS === 'android' ? Location.Accuracy.Balanced : Location.Accuracy.High;
+              let loc = null;
+              if (last) {
+                const regionA = {
+                  latitude: last.coords.latitude,
+                  longitude: last.coords.longitude,
+                  latitudeDelta: 0.02,
+                  longitudeDelta: 0.02,
+                };
+                if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
+                  mapRef.current.animateToRegion(regionA, 600);
+                }
+                setMapRegion(regionA);
+                setPinCoords({ latitude: regionA.latitude, longitude: regionA.longitude });
+              }
+              try {
+                loc = await withTimeout(Location.getCurrentPositionAsync({ accuracy }), 6000);
+              } catch (e) {}
+              const final = loc || last;
+              if (!final) return;
+              const regionB = {
+                latitude: final.coords.latitude,
+                longitude: final.coords.longitude,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+              };
+              if (mapRef.current && typeof mapRef.current.animateToRegion === 'function') {
+                mapRef.current.animateToRegion(regionB, 600);
+              }
+              setMapRegion(regionB);
+              setPinCoords({ latitude: regionB.latitude, longitude: regionB.longitude });
+            } catch (err) {
+              console.warn('Failed to recenter:', err?.message || err);
+            }
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Recenter map to your location"
+        >
+          <Ionicons name="locate" style={styles.locationIcon} />
         </TouchableOpacity>
       </View>
 
-      {/* Filters Modal */}
       <Modal
         visible={filterVisible}
         transparent={true}
@@ -795,24 +762,8 @@ const MapScreen = () => {
                       : 'Select plant families'}
                   </Text>
                 </TouchableOpacity>
-                {filterFamilies.length ? (
-                  <View style={styles.statusRow}>
-                    {filterFamilies.map((fam, i) => (
-                      <TouchableOpacity
-                        key={`fam-sel-${fam}-${i}`}
-                        style={styles.statusChip}
-                        onPress={() => removeFamily(fam)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Deselect ${fam}`}
-                      >
-                        <Text style={styles.statusChipText}>{fam} ✕</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ) : null}
               </View>
 
-              {/* Family Multi-Select Modal */}
               <Modal
                 visible={familyDropdownVisible}
                 transparent={true}
@@ -864,40 +815,56 @@ const MapScreen = () => {
                 </View>
               </Modal>
 
-              <View style={styles.dataContainer}>
-                <Text style={styles.inputLabel}>Conservation Status</Text>
-                <View style={styles.statusRow}>
-                  {ALL_STATUSES.map((s) => (
-                    <TouchableOpacity
-                      key={`opt-${s}`}
-                      onPress={() => toggleStatus(s)}
-                      style={[styles.statusChip, filterStatuses.includes(s) ? styles.statusChipActive : null]}
-                    >
-                      <Text style={[styles.statusChipText, filterStatuses.includes(s) ? styles.statusChipTextActive : null]}>{s}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+              <View style={styles.filterGroup}>
+                <Text style={styles.filterLabel}>Status:</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.filterOptions}
+                  contentContainerStyle={styles.filterOptionsContent}
+                >
+                  {ALL_STATUSES.map((s) => {
+                    const label = s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+                    const active = filterStatuses.includes(s);
+                    return (
+                      <TouchableOpacity
+                        key={`status-${s}`}
+                        style={[styles.filterOption, active && styles.filterOptionActive]}
+                        onPress={() => toggleStatus(s)}
+                      >
+                        <Text style={[styles.filterOptionText, active && styles.filterOptionTextActive]}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               </View>
 
-              <View style={styles.dataContainer}>
-                <Text style={styles.inputLabel}>Quick Date Ranges</Text>
-                <View style={styles.statusRow}>
-                  <TouchableOpacity onPress={() => applyDatePreset('today')} style={[styles.statusChip, datePreset === 'today' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select today">
-                    <Text style={[styles.statusChipText, datePreset === 'today' ? styles.statusChipTextActive : null]}>Today</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => applyDatePreset('last7')} style={[styles.statusChip, datePreset === 'last7' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select last 7 days">
-                    <Text style={[styles.statusChipText, datePreset === 'last7' ? styles.statusChipTextActive : null]}>Last 7 days</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => applyDatePreset('last30')} style={[styles.statusChip, datePreset === 'last30' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select last 30 days">
-                    <Text style={[styles.statusChipText, datePreset === 'last30' ? styles.statusChipTextActive : null]}>Last 30 days</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => applyDatePreset('last90')} style={[styles.statusChip, datePreset === 'last90' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select last 90 days">
-                    <Text style={[styles.statusChipText, datePreset === 'last90' ? styles.statusChipTextActive : null]}>Last 90 days</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => applyDatePreset('thisMonth')} style={[styles.statusChip, datePreset === 'thisMonth' ? styles.statusChipActive : null]} accessibilityRole="button" accessibilityLabel="Select this month">
-                    <Text style={[styles.statusChipText, datePreset === 'thisMonth' ? styles.statusChipTextActive : null]}>This month</Text>
-                  </TouchableOpacity>
-                </View>
+              <View style={styles.filterGroup}>
+                <Text style={styles.filterLabel}>Date Range:</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.filterOptions}
+                  contentContainerStyle={styles.filterOptionsContent}
+                >
+                  {[
+                    { key: 'today', label: 'Today' },
+                    { key: 'last7', label: 'Last 7 days' },
+                    { key: 'last30', label: 'Last 30 days' },
+                    { key: 'last90', label: 'Last 90 days' },
+                    { key: 'thisMonth', label: 'This month' },
+                  ].map((opt) => (
+                    <TouchableOpacity
+                      key={`date-${opt.key}`}
+                      onPress={() => applyDatePreset(opt.key)}
+                      style={[styles.filterOption, datePreset === opt.key && styles.filterOptionActive]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select ${opt.label}`}
+                    >
+                      <Text style={[styles.filterOptionText, datePreset === opt.key && styles.filterOptionTextActive]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
               </View>
             </ScrollView>
 
@@ -912,13 +879,10 @@ const MapScreen = () => {
           </View>
         </View>
       </Modal>
-
-      {/* Plant Card anchored overlay is rendered inside mapContainer above */}
     </SafeAreaView>
   );
 };
 
-// ... keep all your existing styles ...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -952,6 +916,18 @@ const styles = StyleSheet.create({
     left: 12,
     top: 12,
   },
+  clearSearchBtn: {
+    position: 'absolute',
+    right: 12,
+    top: 10,
+    padding: 2,
+  },
+  jumpSearchBtn: {
+    position: 'absolute',
+    right: 40,
+    top: 10,
+    padding: 2,
+  },
   titleSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -967,72 +943,109 @@ const styles = StyleSheet.create({
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    paddingHorizontal: 12,
+    backgroundColor: '#e8f5e9',
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#c8e6c9',
   },
   filterText: {
     fontSize: 14,
-    color: '#666',
+    color: '#2e7d32',
+    fontWeight: '600',
     marginLeft: 6,
   },
-  filterToggle: {
-    padding: 8,
-  },
-  filterIcon: {
-    fontSize: 20,
-  },
-  filtersBar: {
-    backgroundColor: '#ffffff',
-    marginHorizontal: 20,
-    marginTop: 10,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+  filterResultsBadge: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 8,
+    marginLeft: 10,
+    backgroundColor: '#e8f5e9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
+  },
+  filterResultsText: {
+    color: '#2e7d32',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  filterResultsIcon: {
+    color: '#2e7d32',
+    marginRight: 4,
+  },
+  
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  marker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e8f5e9',
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  markerIcon: {
+    fontSize: 18,
+    color: '#2e7d32',
+  },
+  markerUser: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#90caf9',
+  },
+  markerIconUser: {
+    color: '#1565c0',
+  },
+  heatmapToggle: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e8f5e9',
+    borderColor: '#c8e6c9',
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  filtersLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginRight: 8,
+  heatmapToggleActive: {
+    backgroundColor: '#2e7d32',
+    borderColor: '#1b5e20',
   },
-  chip: {
-    backgroundColor: '#f8f9fa',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    marginRight: 8,
-    marginBottom: 8,
+  heatmapToggleIcon: {
+    color: '#2e7d32',
+    marginRight: 6,
   },
-  chipText: {
-    fontSize: 13,
-    color: '#666',
+  heatmapToggleIconActive: {
+    color: '#ffffff',
   },
-  clearBtn: {
-    backgroundColor: '#e8f5e9',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  clearBtnText: {
+  heatmapToggleText: {
     color: '#2e7d32',
     fontWeight: '600',
-    fontSize: 13,
   },
+  heatmapToggleTextActive: {
+    color: '#ffffff',
+  },
+  
   mapContainer: {
     flex: 1,
     backgroundColor: '#e9ecef',
@@ -1118,9 +1131,7 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '45deg' }],
     borderRadius: 2,
   },
-  modalContainer: {
-    padding: 20,
-  },
+  
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -1161,12 +1172,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#e0e0e0',
     gap: 12,
   },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-  },
+  
   errorContainer: {
     backgroundColor: '#fdecea',
     borderRadius: 8,
@@ -1208,11 +1214,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#ffffff',
   },
-  statusRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
+  
   statusChip: {
     backgroundColor: '#f8f9fa',
     paddingHorizontal: 12,
@@ -1232,6 +1234,45 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   statusChipTextActive: {
+    color: '#2e7d32',
+    fontWeight: '600',
+  },
+
+  filterGroup: {
+    marginBottom: 14,
+  },
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 8,
+  },
+  filterOptions: {
+    // keep default ScrollView styling
+  },
+  filterOptionsContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterOption: {
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  filterOptionActive: {
+    backgroundColor: '#e8f5e8',
+    borderColor: '#2e7d32',
+  },
+  filterOptionText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  filterOptionTextActive: {
     color: '#2e7d32',
     fontWeight: '600',
   },
@@ -1274,25 +1315,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
-  cancelBtn: {
-    backgroundColor: '#f1f3f4',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  cancelBtnText: {
-    color: '#333',
-    fontWeight: '600',
-    fontSize: 16,
-  },
+  
   locationButton: {
     position: 'absolute',
     bottom: 30,
     right: 30,
-    backgroundColor: '#ffffff',
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    backgroundColor: '#e8f5e9',
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -1301,8 +1334,14 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+  locationButtonInline: {
+    position: 'relative',
+    right: undefined,
+    bottom: undefined,
+  },
   locationIcon: {
-    fontSize: 20,
+    fontSize: 22,
+    color: '#2e7d32',
   },
   plantCard: {
     backgroundColor: '#ffffff',

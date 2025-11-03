@@ -336,7 +336,7 @@ class ObservationController {
         });
       }
 
-      const { plantId, confidenceScore, status, public: isPublic } = req.body;
+      const { plantId, confidenceScore, status, public: isPublic, latitude, longitude } = req.body;
  
       // Check if observation exists
       const observation = await Observation.findById(id);
@@ -374,6 +374,31 @@ class ObservationController {
         imageUrl: imageUrl || undefined,
         public: publicValue,
       };
+
+      // Optional latitude/longitude updates if provided in PUT body
+      if (latitude !== undefined) {
+        const latNum = Number(latitude);
+        if (!Number.isNaN(latNum)) {
+          if (latNum < -90 || latNum > 90) {
+            return res.status(400).json({ success: false, error: 'latitude must be between -90 and 90' });
+          }
+          updateData.latitude = latNum;
+        } else {
+          return res.status(400).json({ success: false, error: 'latitude must be numeric' });
+        }
+      }
+
+      if (longitude !== undefined) {
+        const lonNum = Number(longitude);
+        if (!Number.isNaN(lonNum)) {
+          if (lonNum < -180 || lonNum > 180) {
+            return res.status(400).json({ success: false, error: 'longitude must be between -180 and 180' });
+          }
+          updateData.longitude = lonNum;
+        } else {
+          return res.status(400).json({ success: false, error: 'longitude must be numeric' });
+        }
+      }
 
       const success = await Observation.update(id, updateData);
 

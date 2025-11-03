@@ -62,6 +62,9 @@ const UploadScreen = () => {
   const scrollRef = useRef(null);
   const [locationSectionY, setLocationSectionY] = useState(0);
 
+  // Flag as unsure
+  const [isUnsure, setIsUnsure] = useState(false);
+  
   const handleNext = () => {
     // Only allow next when AI results are ready
     const ready = plantName && predictions.length > 0 && !isClassifying;
@@ -427,7 +430,8 @@ const UploadScreen = () => {
           image_url: backendImageUrl, 
           lat, 
           lon, 
-          confidence_score: confidenceScore 
+          confidence_score: confidenceScore,
+          is_unsure: isUnsure
         }),
       });
       
@@ -604,6 +608,7 @@ const UploadScreen = () => {
     setSearchingLocation(false);
     setLocationSource(null);
     setChangeLocPressing(false);
+    setIsUnsure(false);
   };
 
   return (
@@ -721,6 +726,30 @@ const UploadScreen = () => {
             </Text>
           </View>
         )}
+
+        {/* Unsure checkbox */}
+        {predictions.length > 0 && !isClassifying && (
+          <View style={styles.unsureContainer}>
+            <TouchableOpacity
+              style={styles.checkboxContainer}
+              onPress={() => setIsUnsure(!isUnsure)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkbox, isUnsure && styles.checkboxChecked]}>
+                {isUnsure && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <Text style={styles.checkboxLabel}>
+                I'm unsure about this identification
+              </Text>
+            </TouchableOpacity>
+            {isUnsure && (
+              <Text style={styles.unsureHint}>
+                Your observation will be flagged for expert review
+              </Text>
+            )}
+          </View>
+        )}
+
 
         {predictions.length > 0 && !isClassifying && (
           <TouchableOpacity
@@ -1441,11 +1470,11 @@ const styles = StyleSheet.create({
   cancelButtonDisabled: {
     backgroundColor: "#CCCCCC",
   },
-  classifyButton: {
-  width: "100%",
-  alignItems: "center",
-  marginTop: 10,
-},
+    classifyButton: {
+    width: "100%",
+    alignItems: "center",
+    marginTop: 10,
+  },
   // Step navigation styles
   stepContainer: {
     width: '100%',
@@ -1489,6 +1518,52 @@ const styles = StyleSheet.create({
     color: '#2e7d32',
     fontSize: 14,
     fontWeight: '700',
+  },
+
+  //flag as unsure
+  unsureContainer: {
+    width: '100%',
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+    backgroundColor: 'white',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  checkboxChecked: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  checkmark: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  checkboxLabel: {
+    fontSize: 15,
+    color: '#333',
+    flex: 1,
+  },
+  unsureHint: {
+    fontSize: 13,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 4,
+    marginLeft: 36,
   },
 });
 

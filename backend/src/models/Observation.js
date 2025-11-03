@@ -237,6 +237,17 @@ class Observation {
       params.push(data.imageUrl);
     }
 
+    // Support latitude/longitude updates
+    if (data.latitude !== undefined) {
+      updates.push("latitude = ?");
+      params.push(data.latitude);
+    }
+
+    if (data.longitude !== undefined) {
+      updates.push("longitude = ?");
+      params.push(data.longitude);
+    }
+
     if (updates.length === 0) {
       return false;
     }

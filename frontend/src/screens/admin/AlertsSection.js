@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import styles from './SectionStyles';
@@ -237,17 +238,38 @@ const AlertsSection = ({ API_URL, getAuthToken }) => {
     return `${Math.floor(diffInSeconds / 86400)}d ago`;
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    try {
+      setRefreshing(true);
+      await fetchAlerts();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <View style={styles.section}>
       {/* Loading Indicator */}
-      {alertsLoading && (
+      {alertsLoading && !refreshing && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2e7d32" />
           <Text style={styles.loadingText}>Loading alerts...</Text>
         </View>
       )}
 
-      <ScrollView style={styles.contentScroll}>
+      <ScrollView
+        style={styles.contentScroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#2e7d32']}
+            tintColor={'#2e7d32'}
+          />
+        }
+      >
         {/* Search and Filter Section */}
         <View style={styles.filterSection}>
           {/* Search Row */}
