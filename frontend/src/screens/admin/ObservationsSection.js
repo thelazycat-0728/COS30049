@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Switch,
   TextInput,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
@@ -35,6 +36,8 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
   const [obsDetail, setObsDetail] = useState(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [pubSaving, setPubSaving] = useState(false);
+  // NEW: Toggle editing coordinates on map
+  const [editingLocation, setEditingLocation] = useState(false);
   
   // NEW: Plant selection state
   const [plantsList, setPlantsList] = useState([]);
@@ -240,6 +243,29 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
     return map[status] || '#607D8B';
   };
 
+  // Format a date-like value to a local YYYY-MM-DD string, avoiding UTC off-by-one
+  const formatLocalDate = (value) => {
+    if (!value) return '';
+    try {
+      // If it's already a date-only string
+      const s = typeof value === 'string' ? value : value.toString();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+      const dt = new Date(value);
+      if (isNaN(dt)) {
+        // Fallback: if it's ISO-like with time, take date part
+        const isoPart = s.split('T')[0];
+        return /^\d{4}-\d{2}-\d{2}$/.test(isoPart) ? isoPart : s;
+      }
+      const year = dt.getFullYear();
+      const month = String(dt.getMonth() + 1).padStart(2, '0');
+      const day = String(dt.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    } catch (e) {
+      return '';
+    }
+  };
+
   const handleSearch = (text) => {
     setSearchQuery(text);
     setObsPage(1);
@@ -278,17 +304,38 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
     return sortOrder === 'ASC' ? 'arrow-up' : 'arrow-down';
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    try {
+      setRefreshing(true);
+      await fetchObservations();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <View style={styles.section}>
       {/* Loading Indicator */}
-      {obsLoading && (
+      {obsLoading && !refreshing && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2e7d32" />
           <Text style={styles.loadingText}>Loading observations...</Text>
         </View>
       )}
 
-      <ScrollView style={styles.contentScroll}>
+      <ScrollView
+        style={styles.contentScroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#2e7d32']}
+            tintColor={'#2e7d32'}
+          />
+        }
+      >
         {/* Search and Filter Section - UPDATED: Labels on same line as options */}
         <View style={styles.filterSection}>
           {/* Search Input */}
@@ -428,7 +475,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
               const plantInfo = plantCache[item.plant_id] || null;
               const commonName = plantInfo?.common_name || `Plant #${item.plant_id}`;
               const scientificName = plantInfo?.scientific_name || '';
-              const dateStr = (item.observation_date || '').toString().split('T')[0];
+              const dateStr = formatLocalDate(item.observation_date);
               const lat = item.latitude != null ? Number(item.latitude).toFixed(5) : '—';
               const lon = item.longitude != null ? Number(item.longitude).toFixed(5) : '—';
               const cons = (item.conservation_status || plantInfo?.conservation_status || '').toString();
@@ -586,7 +633,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                     </View>
                     <View style={styles.obsMetaRow}>
                       <Ionicons name="calendar-outline" size={16} color="#666" />
-                      <Text style={styles.obsMetaText}>Date: {(obsDetail.observation_date || '').toString().split('T')[0] || 'N/A'}</Text>
+                      <Text style={styles.obsMetaText}>Date: {formatLocalDate(obsDetail.observation_date) || 'N/A'}</Text>
                     </View>
                     <View style={styles.obsMetaRow}>
                       <Ionicons name="location-outline" size={16} color="#666" />
@@ -595,6 +642,19 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                         {' \n'}
                         Lon: {obsDetail.longitude != null ? String(obsDetail.longitude) : '—'}
                       </Text>
+                    </View>
+                    <View style={[styles.obsMetaRow, { justifyContent: 'space-between', marginTop: 8 }]}> 
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="location" size={16} color="#666" />
+                        <Text style={styles.obsMetaText}>Edit coordinates on map</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.plantSelectButton}
+                        onPress={() => setEditingLocation((prev) => !prev)}
+                      >
+                        <Ionicons name={editingLocation ? 'checkmark-circle-outline' : 'pencil'} size={18} color="#2e7d32" />
+                        <Text style={styles.plantSelectText}>{editingLocation ? 'Done Editing' : 'Edit Location'}</Text>
+                      </TouchableOpacity>
                     </View>
                     <View style={styles.obsMetaRow}>
                       <Ionicons name="stats-chart-outline" size={16} color="#666" />
@@ -663,11 +723,25 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                           latitudeDelta: 0.02,
                           longitudeDelta: 0.02,
                         }}
+                        onPress={(e) => {
+                          if (!editingLocation) return;
+                          const { latitude, longitude } = e?.nativeEvent?.coordinate || {};
+                          if (latitude != null && longitude != null) {
+                            setObsDetail((prev) => ({ ...prev, latitude, longitude }));
+                          }
+                        }}
                       >
                         <Marker
                           coordinate={{
                             latitude: Number(obsDetail.latitude),
                             longitude: Number(obsDetail.longitude),
+                          }}
+                          draggable={!!editingLocation}
+                          onDragEnd={(e) => {
+                            const { latitude, longitude } = e?.nativeEvent?.coordinate || {};
+                            if (latitude != null && longitude != null) {
+                              setObsDetail((prev) => ({ ...prev, latitude, longitude }));
+                            }
                           }}
                           title={(plantCache[obsDetail.plant_id]?.common_name) || `Plant #${obsDetail.plant_id}`}
                           description={`Lat: ${String(obsDetail.latitude)}  |  Lon: ${String(obsDetail.longitude)}`}
@@ -720,7 +794,11 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                     // Prepare update data
                     const updateData = {
                       status: obsDetail.status,
-                      ...(obsDetail.plant_id && { plantId: obsDetail.plant_id })
+                      ...(obsDetail.plant_id && { plantId: obsDetail.plant_id }),
+                      ...(obsDetail.latitude != null && obsDetail.longitude != null ? {
+                        latitude: Number(obsDetail.latitude),
+                        longitude: Number(obsDetail.longitude),
+                      } : {}),
                     };
 
                     const res = await fetch(`${API_URL}/observations/${obsDetail.observation_id}`, {
@@ -737,7 +815,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                     }
                     // Update list item in-place
                     setObservations((prev) => prev.map((o) => (
-                      o.observation_id === obsDetail.observation_id ? { ...o, status: obsDetail.status, plant_id: obsDetail.plant_id } : o
+                      o.observation_id === obsDetail.observation_id ? { ...o, status: obsDetail.status, plant_id: obsDetail.plant_id, latitude: obsDetail.latitude, longitude: obsDetail.longitude } : o
                     )));
                     // Update plant cache if plant was changed
                     if (obsDetail.plant_id && !plantCache[obsDetail.plant_id]) {
@@ -746,6 +824,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                     // Sync detail with updated server response if available
                     if (data?.observation) setObsDetail(data.observation);
                     Alert.alert('Success', 'Observation updated successfully');
+                    setEditingLocation(false);
                   } catch (err) {
                     console.error('Observation update error:', err);
                     Alert.alert('Error', String(err.message || 'Failed to update observation'));
