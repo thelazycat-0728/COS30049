@@ -635,27 +635,77 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                       <Ionicons name="calendar-outline" size={16} color="#666" />
                       <Text style={styles.obsMetaText}>Date: {formatLocalDate(obsDetail.observation_date) || 'N/A'}</Text>
                     </View>
-                    <View style={styles.obsMetaRow}>
-                      <Ionicons name="location-outline" size={16} color="#666" />
-                      <Text style={styles.obsMetaText}>
-                        Lat: {obsDetail.latitude != null ? String(obsDetail.latitude) : '—'}
-                        {' \n'}
-                        Lon: {obsDetail.longitude != null ? String(obsDetail.longitude) : '—'}
-                      </Text>
+                    
+                    {/* Enhanced Location Editing Section */}
+                    <View style={styles.locationHeader}>
+                      <Ionicons name="location-outline" size={18} color="#2e7d32" />
+                      <Text style={styles.locationTitle}>Location Coordinates</Text>
                     </View>
-                    <View style={[styles.obsMetaRow, { justifyContent: 'space-between', marginTop: 8 }]}> 
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Ionicons name="location" size={16} color="#666" />
-                        <Text style={styles.obsMetaText}>Edit coordinates on map</Text>
+                    
+                    {/* Current Coordinates Display */}
+                    <View style={styles.coordinatesDisplay}>
+                      <View style={styles.coordinateRow}>
+                        <View style={styles.coordinateItem}>
+                          <Text style={styles.coordinateLabel}>Latitude</Text>
+                          <Text style={styles.coordinateValue}>
+                            {obsDetail.latitude != null ? Number(obsDetail.latitude).toFixed(6) : 'Not set'}
+                          </Text>
+                        </View>
+                        <View style={styles.coordinateItem}>
+                          <Text style={styles.coordinateLabel}>Longitude</Text>
+                          <Text style={styles.coordinateValue}>
+                            {obsDetail.longitude != null ? Number(obsDetail.longitude).toFixed(6) : 'Not set'}
+                          </Text>
+                        </View>
                       </View>
-                      <TouchableOpacity
-                        style={styles.plantSelectButton}
+                    </View>
+
+                    {/* Location Actions */}
+                    <View style={styles.locationActions}>
+                      <TouchableOpacity 
+                        style={[
+                          styles.locationButton,
+                          editingLocation ? styles.locationButtonActive : styles.locationButtonDefault
+                        ]}
                         onPress={() => setEditingLocation((prev) => !prev)}
                       >
-                        <Ionicons name={editingLocation ? 'checkmark-circle-outline' : 'pencil'} size={18} color="#2e7d32" />
-                        <Text style={styles.plantSelectText}>{editingLocation ? 'Done Editing' : 'Edit Location'}</Text>
+                        <Ionicons 
+                          name={editingLocation ? 'checkmark-circle' : 'map-outline'} 
+                          size={18} 
+                          color={editingLocation ? '#fff' : '#2e7d32'} 
+                        />
+                        <Text style={[
+                          styles.locationButtonText,
+                          editingLocation ? styles.locationButtonTextActive : styles.locationButtonTextDefault
+                        ]}>
+                          {editingLocation ? 'Tap Map to Set Location' : 'Edit on Map'}
+                        </Text>
                       </TouchableOpacity>
+
+                      {(obsDetail.latitude != null || obsDetail.longitude != null) && (
+                        <TouchableOpacity 
+                          style={styles.clearLocationButton}
+                          onPress={() => {
+                            setObsDetail(prev => ({ ...prev, latitude: null, longitude: null }));
+                            setEditingLocation(false);
+                          }}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#dc3545" />
+                          <Text style={styles.clearLocationText}>Clear</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
+
+                    {/* Editing Instructions */}
+                    {editingLocation && (
+                      <View style={styles.editingInstructions}>
+                        <Ionicons name="information-circle-outline" size={16} color="#2e7d32" />
+                        <Text style={styles.instructionsText}>
+                          Tap anywhere on the map to set coordinates, or drag the marker to adjust
+                        </Text>
+                      </View>
+                    )}
+
                     <View style={styles.obsMetaRow}>
                       <Ionicons name="stats-chart-outline" size={16} color="#666" />
                       <Text style={styles.obsMetaText}>Confidence: {obsDetail.confidence_score != null ? Number(obsDetail.confidence_score).toFixed(2) : '—'}</Text>
@@ -712,45 +762,105 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                     </View>
                   </View>
 
-                  {/* Map */}
+                  {/* Enhanced Map Section */}
                   <View style={styles.mapContainer}>
-                    {obsDetail.latitude != null && obsDetail.longitude != null ? (
-                      <MapView
-                        style={styles.map}
-                        initialRegion={{
-                          latitude: Number(obsDetail.latitude),
-                          longitude: Number(obsDetail.longitude),
-                          latitudeDelta: 0.02,
-                          longitudeDelta: 0.02,
-                        }}
-                        onPress={(e) => {
-                          if (!editingLocation) return;
-                          const { latitude, longitude } = e?.nativeEvent?.coordinate || {};
-                          if (latitude != null && longitude != null) {
-                            setObsDetail((prev) => ({ ...prev, latitude, longitude }));
-                          }
-                        }}
-                      >
-                        <Marker
-                          coordinate={{
+                    {editingLocation ? (
+                      <View style={styles.mapEditingContainer}>
+                        <View style={styles.mapEditingHeader}>
+                          <Ionicons name="navigate" size={16} color="#2e7d32" />
+                          <Text style={styles.mapEditingTitle}>Editing Location</Text>
+                        </View>
+                        {obsDetail.latitude != null && obsDetail.longitude != null ? (
+                          <MapView
+                            style={styles.map}
+                            initialRegion={{
+                              latitude: Number(obsDetail.latitude),
+                              longitude: Number(obsDetail.longitude),
+                              latitudeDelta: 0.02,
+                              longitudeDelta: 0.02,
+                            }}
+                            onPress={(e) => {
+                              const { latitude, longitude } = e?.nativeEvent?.coordinate || {};
+                              if (latitude != null && longitude != null) {
+                                setObsDetail((prev) => ({ ...prev, latitude, longitude }));
+                              }
+                            }}
+                          >
+                            <Marker
+                              coordinate={{
+                                latitude: Number(obsDetail.latitude),
+                                longitude: Number(obsDetail.longitude),
+                              }}
+                              draggable={true}
+                              onDragEnd={(e) => {
+                                const { latitude, longitude } = e?.nativeEvent?.coordinate || {};
+                                if (latitude != null && longitude != null) {
+                                  setObsDetail((prev) => ({ ...prev, latitude, longitude }));
+                                }
+                              }}
+                              title="Observation Location"
+                              description={`Drag to adjust position`}
+                            >
+                              <View style={styles.customMarker}>
+                                <Ionicons name="location" size={20} color="#2e7d32" />
+                              </View>
+                            </Marker>
+                          </MapView>
+                        ) : (
+                          <View style={styles.noLocationMap}>
+                            <MapView
+                              style={styles.map}
+                              initialRegion={{
+                                latitude: 0,
+                                longitude: 0,
+                                latitudeDelta: 60,
+                                longitudeDelta: 60,
+                              }}
+                              onPress={(e) => {
+                                const { latitude, longitude } = e?.nativeEvent?.coordinate || {};
+                                if (latitude != null && longitude != null) {
+                                  setObsDetail((prev) => ({ ...prev, latitude, longitude }));
+                                }
+                              }}
+                            >
+                              <View style={styles.mapHint}>
+                                <Ionicons name="hand-left-outline" size={32} color="#2e7d32" />
+                                <Text style={styles.mapHintText}>Tap anywhere on the map to set location</Text>
+                              </View>
+                            </MapView>
+                          </View>
+                        )}
+                      </View>
+                    ) : (
+                      // Regular map view when not editing
+                      obsDetail.latitude != null && obsDetail.longitude != null ? (
+                        <MapView
+                          style={styles.map}
+                          initialRegion={{
                             latitude: Number(obsDetail.latitude),
                             longitude: Number(obsDetail.longitude),
+                            latitudeDelta: 0.02,
+                            longitudeDelta: 0.02,
                           }}
-                          draggable={!!editingLocation}
-                          onDragEnd={(e) => {
-                            const { latitude, longitude } = e?.nativeEvent?.coordinate || {};
-                            if (latitude != null && longitude != null) {
-                              setObsDetail((prev) => ({ ...prev, latitude, longitude }));
-                            }
-                          }}
-                          title={(plantCache[obsDetail.plant_id]?.common_name) || `Plant #${obsDetail.plant_id}`}
-                          description={`Lat: ${String(obsDetail.latitude)}  |  Lon: ${String(obsDetail.longitude)}`}
-                        />
-                      </MapView>
-                    ) : (
-                      <View style={styles.placeholderBox}>
-                        <Text style={{ color: '#666' }}>No coordinates available for this observation</Text>
-                      </View>
+                        >
+                          <Marker
+                            coordinate={{
+                              latitude: Number(obsDetail.latitude),
+                              longitude: Number(obsDetail.longitude),
+                            }}
+                            title={(plantCache[obsDetail.plant_id]?.common_name) || `Plant #${obsDetail.plant_id}`}
+                            description={`Lat: ${String(obsDetail.latitude)}  |  Lon: ${String(obsDetail.longitude)}`}
+                          />
+                        </MapView>
+                      ) : (
+                        <View style={styles.placeholderBox}>
+                          <Ionicons name="map-outline" size={32} color="#ccc" />
+                          <Text style={{ color: '#666', marginTop: 8 }}>No coordinates set for this observation</Text>
+                          <Text style={{ color: '#999', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+                            Use the "Edit on Map" button to add location data
+                          </Text>
+                        </View>
+                      )
                     )}
                   </View>
 
