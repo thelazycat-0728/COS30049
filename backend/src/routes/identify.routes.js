@@ -6,6 +6,11 @@ const { optionalAuth } = require('../middleware/auth');
 
 const identifyRouter = express.Router();
 
+// Health check for reachability/preflight
+identifyRouter.get('/health', (req, res) => {
+  res.json({ ok: true, service: 'identify', timestamp: Date.now() });
+});
+
 // EXIF-based location extraction from uploaded image
 identifyRouter.post(
   '/extract-location',
