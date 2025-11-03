@@ -7,7 +7,7 @@ const API_BASE = process.env.EXPO_PUBLIC_API_BASE; // align with Map/Admin scree
 
 const PlantDetailScreen = ({ route }) => {
   const { plant } = route.params || {};
-  const plantId = plant?.plantId;
+  const plantId = plant?.plant_id;
   const observationId = plant?.observationId;
 
   const [plantDetails, setPlantDetails] = useState(null);
@@ -16,6 +16,20 @@ const PlantDetailScreen = ({ route }) => {
   const [mapRegion, setMapRegion] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // ✅ New: state for derived/display variables (initialized after fetch)
+  const [display, setDisplay] = useState({
+    imageUrl: null,
+    commonName: 'Unknown',
+    scientificName: '',
+    species: '',
+    family: '',
+    description: '',
+    conservationStatus: '',
+    observationDate: '',
+    latitude: null,
+    longitude: null,
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -27,9 +41,11 @@ const PlantDetailScreen = ({ route }) => {
         // Fetch plant details
         let pd = null;
         if (plantId) {
-          const res = await fetch(`${API_BASE}/map/plants/${plantId}`);
+          const res = await fetch(`${API_BASE}/admin/plants/${plantId}`);
           if (res.ok) {
             pd = await res.json();
+
+            console.log(pd);
           } else {
             throw new Error(`Plant fetch failed: ${res.status}`);
           }
@@ -55,10 +71,8 @@ const PlantDetailScreen = ({ route }) => {
           if (resAll.ok) {
             const dataAll = await resAll.json();
             const rawList = Array.isArray(dataAll?.observations) ? dataAll.observations : [];
-            // Enforce client-side filters: by plant and public flag
             const filteredByPlant = rawList.filter((o) => Number(o?.plant_id) === Number(plantId));
             const filteredPublic = filteredByPlant.filter((o) => o?.public === 1 || o?.public === true);
-            // Keep only observations with valid numeric coordinates
             allObs = filteredPublic
               .filter((o) => o?.latitude != null && o?.longitude != null)
               .map((o) => ({
@@ -93,6 +107,36 @@ const PlantDetailScreen = ({ route }) => {
           } else {
             setMapRegion(null);
           }
+
+          // ✅ Derive display variables AFTER fetch and set to state
+          const imageUrl = obs?.image_url || plant?.image_url || null;
+          const commonName = pd?.plant?.common_name || plant?.common_name || 'Unknown';
+          const scientificName = pd?.plant?.scientific_name || plant?.scientific_name || '';
+          const species = pd?.plant?.species || '';
+          const family = pd?.plant?.family || '';
+          const description = pd?.plant?.description || '';
+          const conservationStatus = pd?.plant?.conservation_status || '';
+          const rawObservationDate = obs?.observation_date || '';
+          const observationDate = rawObservationDate ? String(rawObservationDate).split('T')[0] : '';
+          const latitude = obs?.latitude != null
+            ? Number(obs.latitude)
+            : (plant?.coordinates?.lat != null ? Number(plant.coordinates.lat) : null);
+          const longitude = obs?.longitude != null
+            ? Number(obs.longitude)
+            : (plant?.coordinates?.lon != null ? Number(plant.coordinates.lon) : null);
+
+          setDisplay({
+            imageUrl,
+            commonName,
+            scientificName,
+            species,
+            family,
+            description,
+            conservationStatus,
+            observationDate,
+            latitude,
+            longitude,
+          });
         }
       } catch (e) {
         console.error('Error fetching plant details:', e);
@@ -106,26 +150,10 @@ const PlantDetailScreen = ({ route }) => {
     return () => { mounted = false; };
   }, [plantId, observationId]);
 
-  const imageUrl = observation?.image_url || plant?.image || null;
-  const commonName = plantDetails?.common_name || plant?.name || 'Unknown';
-  const scientificName = plantDetails?.scientific_name || plant?.scientificName || '';
-  const species = plantDetails?.species || '';
-  const family = plantDetails?.family || '';
-  const description = plantDetails?.description || '';
-  const conservationStatus = plantDetails?.conservation_status || '';
-  const rawObservationDate = observation?.observation_date || '';
-  const observationDate = rawObservationDate.split('T')[0] || '';
-  const latitude = observation?.latitude != null
-    ? Number(observation.latitude)
-    : (plant?.coordinates?.lat != null ? Number(plant.coordinates.lat) : null);
-  const longitude = observation?.longitude != null
-    ? Number(observation.longitude)
-    : (plant?.coordinates?.lon != null ? Number(plant.coordinates.lon) : null);
-
   return (
     <ScrollView style={styles.container}>
-      {imageUrl ? (
-        <Image source={{ uri: imageUrl }} style={styles.plantImage} />
+      {display.imageUrl ? (
+        <Image source={{ uri: display.imageUrl }} style={styles.plantImage} />
       ) : (
         <View style={[styles.plantImage, styles.placeholder]}>
           <Text style={{ color: '#888' }}>No image available</Text>
@@ -144,41 +172,41 @@ const PlantDetailScreen = ({ route }) => {
           </View>
         ) : (
           <>
-            <Text style={styles.plantName}>{commonName}</Text>
-            <Text style={styles.scientificName}>{scientificName}</Text>
+            <Text style={styles.plantName}>{display.commonName}</Text>
+            <Text style={styles.scientificName}>{display.scientificName}</Text>
 
             <View style={styles.detailsSection}>
               <Text style={styles.sectionTitle}>Plant Details</Text>
               <View style={styles.detailItem}>
                 <Text style={styles.detailLabel}>Observation Date</Text>
-                <Text style={styles.detailValue}>{observationDate || 'N/A'}</Text>
+                <Text style={styles.detailValue}>{display.observationDate || 'N/A'}</Text>
               </View>
               <View style={styles.detailItem}>
                 <Text style={styles.detailLabel}>Scientific Name</Text>
-                <Text style={styles.detailValue}>{scientificName || 'N/A'}</Text>
+                <Text style={styles.detailValue}>{display.scientificName || 'N/A'}</Text>
               </View>
               <View style={styles.detailItem}>
                 <Text style={styles.detailLabel}>Species</Text>
-                <Text style={styles.detailValue}>{species || 'N/A'}</Text>
+                <Text style={styles.detailValue}>{display.species || 'N/A'}</Text>
               </View>
               <View style={styles.detailItem}>
                 <Text style={styles.detailLabel}>Common Name</Text>
-                <Text style={styles.detailValue}>{commonName || 'N/A'}</Text>
+                <Text style={styles.detailValue}>{display.commonName || 'N/A'}</Text>
               </View>
               <View style={styles.detailItem}>
                 <Text style={styles.detailLabel}>Family</Text>
-                <Text style={styles.detailValue}>{family || 'N/A'}</Text>
+                <Text style={styles.detailValue}>{display.family || 'N/A'}</Text>
               </View>
               <View style={styles.detailItem}>
                 <Text style={styles.detailLabel}>Conservation Status</Text>
-                <Text style={styles.detailValue}>{conservationStatus || 'N/A'}</Text>
+                <Text style={styles.detailValue}>{display.conservationStatus || 'N/A'}</Text>
               </View>
             </View>
 
             <View style={styles.infoSection}>
               <Text style={styles.sectionTitle}>Description</Text>
               <Text style={styles.description}>
-                {description || `No description available for ${commonName}.`}
+                {display.description || `No description available for ${display.commonName}.`}
               </Text>
             </View>
 

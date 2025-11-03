@@ -36,8 +36,8 @@ adminRouter.post('/train/finish', trainingController.finishTraining);
 adminRouter.post('/cleanup-tokens', auth.requireAdmin, authController.cleanupExpiredTokens);
 
 // Plants management (admin/expert)
-adminRouter.get('/plants', auth.requireExpert, plantController.getAll);
-adminRouter.get('/plants/:plant_id', auth.requireExpert, plantController.getById);
+adminRouter.get('/plants', plantController.getAll);
+adminRouter.get('/plants/:plant_id', plantController.getById);
 adminRouter.post('/plants', auth.requireExpert, upload.single('image'), plantController.create);
 adminRouter.put('/plants/:plant_id', auth.requireExpert, upload.single('image'), plantController.update);
 adminRouter.delete('/plants/:plant_id', auth.requireExpert, plantController.delete);

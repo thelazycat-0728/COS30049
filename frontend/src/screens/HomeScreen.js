@@ -1,5 +1,5 @@
 // screens/HomeScreen.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons'; // 添加这行
 
 import {
@@ -14,72 +14,65 @@ import {
   SafeAreaView,
   FlatList,
   Dimensions,
+  ActivityIndicator
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
+const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
+
 const HomeScreen = () => {
   const navigation = useNavigation();
   const [searchText, setSearchText] = useState('');
   const [isGridLayout, setIsGridLayout] = useState(true);
+  const [plants, setPlants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const plants = [
-    {
-      id: '1',
-      name: 'Monstera',
-      scientificName: 'Monstera deliciosa',
-      description: 'Monstera is a type of tropical plant that is popular',
-      image: 'https://images.unsplash.com/photo-1525498128493-380d1990a112?w=400',
-      type: 'indoor'
-    },
-    {
-      id: '2',
-      name: 'Aloe Vera',
-      scientificName: 'Aloe barbadensis',
-      description: 'Aloe vera is a plant species with thick fleshy leaves',
-      image: 'https://images.unsplash.com/photo-1596541223130-5d31a73d4c68?w=400',
-      type: 'succulent'
-    },
-    {
-      id: '3',
-      name: 'Snake Plant',
-      scientificName: 'Sansevieria trifasciata',
-      description: 'Sansevieria is known for its air-purifying qualities',
-      image: 'https://images.unsplash.com/photo-1585355865725-4a1eaaad5145?w=400',
-      type: 'indoor'
-    },
-    {
-      id: '4',
-      name: 'Fiddle Leaf Fig',
-      scientificName: 'Ficus lyrata',
-      description: 'Popular indoor tree with large, violin-shaped leaves',
-      image: 'https://images.unsplash.com/photo-1593489060062-2c6c0e4080b1?w=400',
-      type: 'indoor'
-    },
-    {
-      id: '5',
-      name: 'Pothos',
-      scientificName: 'Epipremnum aureum',
-      description: 'Easy-care trailing vine perfect for beginners',
-      image: 'https://images.unsplash.com/photo-1596464716127-f2a82984de30?w=400',
-      type: 'indoor'
-    },
-    {
-      id: '6',
-      name: 'Rubber Plant',
-      scientificName: 'Ficus elastica',
-      description: 'Glossy-leaved plant that grows into a beautiful tree',
-      image: 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400',
-      type: 'indoor'
-    },
-  ];
+  useEffect(() => {
+    getPlantData();
+  }, []);
+
+  const getPlantData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      
+      const plantsResponse = await fetch(`${API_BASE}/admin/plants`);
+      
+      if (!plantsResponse.ok) {
+        throw new Error(`HTTP error! status: ${plantsResponse.status}`);
+      }
+      
+      const plantsData = await plantsResponse.json();
+      setPlants(plantsData.plants);
+      
+    } catch (error) {
+      console.error("Error fetching plant data:", error);
+      setError(error.message);
+      
+      // Show error alert
+      Alert.alert(
+        'Error',
+        'Failed to load plants. Please check your connection.',
+        [
+          { text: 'Retry', onPress: () => getPlantData() },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const toggleLayout = () => {
     setIsGridLayout(!isGridLayout);
   };
 
   const goToPlantPage = (plant) => {
+    console.log('Navigating to PlantDetail with plant:', plant);
     navigation.navigate('PlantDetail', { plant });
   };
 
@@ -88,10 +81,10 @@ const HomeScreen = () => {
       style={isGridLayout ? styles.plantCardGrid : styles.plantCardList}
       onPress={() => goToPlantPage(item)}
     >
-      <Image source={{ uri: item.image }} style={isGridLayout ? styles.plantImageGrid : styles.plantImageList} />
+      <Image source={{ uri: item.image_url }} style={isGridLayout ? styles.plantImageGrid : styles.plantImageList} />
       <View style={isGridLayout ? styles.plantInfoGrid : styles.plantInfoList}>
-        <Text style={styles.plantName}>{item.name}</Text>
-        <Text style={styles.plantScientific}>{item.scientificName}</Text>
+        <Text style={styles.plantName}>{item.common_name}</Text>
+        <Text style={styles.plantScientific}>{item.scientific_name}</Text>
         <Text style={styles.plantDescription} numberOfLines={2}>
           {item.description}
         </Text>
@@ -99,6 +92,35 @@ const HomeScreen = () => {
     </TouchableOpacity>
   );
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2e7d32" />
+          <Text style={styles.loadingText}>Loading plants...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={64} color="#f44336" />
+          <Text style={styles.errorText}>Failed to Load Plants</Text>
+          <Text style={styles.errorSubtext}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={getPlantData}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
@@ -132,7 +154,7 @@ const HomeScreen = () => {
       <FlatList
         data={plants}
         renderItem={renderPlantCard}
-        keyExtractor={item => item.id}
+        keyExtractor={item => item.plant_id}
         numColumns={isGridLayout ? 2 : 1}
         contentContainerStyle={styles.plantsContainer}
         showsVerticalScrollIndicator={false}
@@ -190,9 +212,65 @@ const styles = StyleSheet.create({
   layoutToggle: {
     padding: 8,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#f44336',
+    marginTop: 16,
+  },
+  errorSubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: '#2e7d32',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 16,
+  },
   plantsContainer: {
     padding: 10,
+    flexGrow: 1,  
   },
+
   plantCardGrid: {
     flex: 1,
     backgroundColor: '#ffffff',
