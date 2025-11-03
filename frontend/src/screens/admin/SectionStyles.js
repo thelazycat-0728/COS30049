@@ -189,6 +189,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#d3e9d3',
     marginTop: 8,
+    marginBottom: 40,
   },
   infoText: {
     flex: 1,
@@ -574,16 +575,7 @@ const styles = StyleSheet.create({
   },
 
   // Training Modal Styles
-  infoBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#E8F5E8',
-    padding: 12,
-    borderRadius: 6,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#C8E6C9',
-  },
+
   infoText: {
     flex: 1,
     marginLeft: 8,
