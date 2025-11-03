@@ -139,14 +139,8 @@ class LocationController {
       const [rows] = await pool.execute(sql, [...params, limit]);
 
       const locations = rows.map(r => {
-        let lat = r.latitude != null ? Number(r.latitude) : null;
-        let lon = r.longitude != null ? Number(r.longitude) : null;
-        const isSensitive = r.conservation_status === 'endangered' || r.conservation_status === 'critically_endangered';
-        const isPublic = r.public === 1 || r.public === true;
-        if (isSensitive && !isPublic && lat != null && lon != null) {
-          lat = Math.round(lat * 1000) / 1000; // ~100m precision
-          lon = Math.round(lon * 1000) / 1000;
-        }
+        const lat = r.latitude != null ? Number(r.latitude) : null;
+        const lon = r.longitude != null ? Number(r.longitude) : null;
         return {
           observation_id: r.observation_id,
           user_id: r.user_id,
@@ -201,14 +195,8 @@ class LocationController {
       const [rows] = await pool.execute(sql, params);
 
       const locations = rows.map(r => {
-        let lat = r.latitude != null ? Number(r.latitude) : null;
-        let lon = r.longitude != null ? Number(r.longitude) : null;
-        const isSensitive = r.conservation_status === 'endangered' || r.conservation_status === 'critically_endangered';
-        const isPublic = r.public === 1 || r.public === true;
-        if (isSensitive && !isPublic && lat != null && lon != null) {
-          lat = Math.round(lat * 1000) / 1000;
-          lon = Math.round(lon * 1000) / 1000;
-        }
+        const lat = r.latitude != null ? Number(r.latitude) : null;
+        const lon = r.longitude != null ? Number(r.longitude) : null;
         return {
           observation_id: r.observation_id,
           user_id: r.user_id,
