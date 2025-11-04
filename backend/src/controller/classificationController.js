@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const auditLogger = require('../logger/auditLogger');
 
 exports.classifyImage = async (req, res) => {
   try {
@@ -19,6 +20,7 @@ exports.classifyImage = async (req, res) => {
 
     // Run Python classification
     const PYTHON_SCRIPT = path.join(__dirname, '../../ml/classify_plant.py');
+    auditLogger.info('classification.request', { requestId: req.requestId, image_path });
     const pythonProcess = spawn('python', [PYTHON_SCRIPT, imageFullPath]);
 
     let output = '';
@@ -29,6 +31,7 @@ exports.classifyImage = async (req, res) => {
 
     pythonProcess.on('close', code => {
       if (code !== 0) {
+        auditLogger.error('classification.error', { requestId: req.requestId, code, stderr: errorOutput });
         return res.status(500).json({
           success: false,
           error: 'Classification failed',
@@ -37,8 +40,10 @@ exports.classifyImage = async (req, res) => {
       }
       try {
         const result = JSON.parse(output);
+        auditLogger.info('classification.result', { requestId: req.requestId, result });
         res.json(result);
       } catch {
+        auditLogger.error('classification.parse_error', { requestId: req.requestId, raw: output });
         res.status(500).json({
           success: false,
           error: 'Invalid classification output',
@@ -49,6 +54,8 @@ exports.classifyImage = async (req, res) => {
 
   } catch (err) {
     console.error('Classification error:', err);
+    auditLogger.error('classification.exception', { requestId: req.requestId, message: err?.message });
     res.status(500).json({ success: false, error: err.message });
   }
+
 };
