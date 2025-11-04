@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const aiServerService = require('../services/AiServerTraining');
+const auditLogger = require('../logger/auditLogger');
 
 // Path
 const MODELS_DIR = path.join(__dirname, '../../ml/models');
@@ -12,9 +13,16 @@ const ACTIVE_MODEL_PATH = path.join(__dirname, '../../ml/active_model.txt');
 const startTraining = async (req, res) => {
   try {
     const result = await aiServerService.startTraining(req.body);
+    auditLogger.info('training.start', {
+      requestId: req.requestId,
+      user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+      params: req.body,
+      result,
+    });
     res.json(result);
   } catch (error) {
     console.error('Error starting training:', error);
+    auditLogger.error('training.start.error', { requestId: req.requestId, message: error?.message });
     res.status(500).json({
       success: false,
       error: 'Failed to start training',
@@ -27,8 +35,10 @@ const startTraining = async (req, res) => {
 const getTrainingStatus = async (req, res) => {
   try {
     const result = await aiServerService.getTrainingStatus();
+    auditLogger.info('training.status', { requestId: req.requestId, result });
     res.json(result);
   } catch (error) {
+    auditLogger.error('training.status.error', { requestId: req.requestId, message: error?.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -40,8 +50,10 @@ const getTrainingStatus = async (req, res) => {
 const stopTraining = async (req, res) => {
   try {
     const result = await aiServerService.stopTraining();
+    auditLogger.info('training.stop', { requestId: req.requestId, result });
     res.json(result);
   } catch (error) {
+    auditLogger.error('training.stop.error', { requestId: req.requestId, message: error?.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -275,7 +287,8 @@ const deleteModel = async (req, res) => {
     await fs.rm(modelDir, { recursive: true, force: true });
     
     console.log(`Model directory deleted successfully: ${modelDir}`);
-    
+
+    auditLogger.info('model.delete', { requestId: req.requestId, user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null, modelName, forceDelete });
     res.json({
       success: true,
       message: `Model ${modelName} deleted successfully`
@@ -283,6 +296,7 @@ const deleteModel = async (req, res) => {
 
   } catch (error) {
     console.error('Error deleting model:', error);
+    auditLogger.error('model.delete.error', { requestId: req.requestId, modelName: req.params.modelName, message: error?.message });
     res.status(500).json({
       success: false,
       message: 'Failed to delete model',
@@ -337,6 +351,7 @@ const finishTraining = async (req, res) => {
 
     if (status === 'failed') {
       console.error(`   Error: ${error}`);
+      auditLogger.error('training.finish', { requestId: req.requestId, status, modelName, error });
       return res.json({
         success: true,
         message: 'Training failure recorded',
@@ -345,9 +360,11 @@ const finishTraining = async (req, res) => {
 
     console.log(`   Train Accuracy: ${trainAccuracy}%`);
     console.log(`   Val Accuracy: ${valAccuracy}%`);
+    auditLogger.info('training.finish', { requestId: req.requestId, status, modelName, speciesCount, totalImages, trainAccuracy, valAccuracy });
 
   } catch (error) {
     console.error('Failed to process training completion:', error);
+    auditLogger.error('training.finish.error', { requestId: req.requestId, message: error?.message });
     res.status(500).json({
       success: false,
       error: 'Failed to process training completion',
@@ -392,7 +409,8 @@ const activateModel = async (req, res) => {
     await fs.writeFile(ACTIVE_MODEL_PATH, modelName, 'utf-8');
     
     console.log(`Model ${modelName} activated successfully`);
-    
+
+    auditLogger.info('model.activate', { requestId: req.requestId, user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null, modelName });
     res.json({
       success: true,
       message: `Model ${modelName} is now active`,
@@ -401,6 +419,7 @@ const activateModel = async (req, res) => {
 
   } catch (error) {
     console.error('Error activating model:', error);
+    auditLogger.error('model.activate.error', { requestId: req.requestId, modelName: req.params.modelName, message: error?.message });
     res.status(500).json({
       success: false,
       message: 'Failed to activate model',
@@ -418,4 +437,5 @@ module.exports = {
   getModelPlot,
   finishTraining,
   activateModel
+
 };
