@@ -5,6 +5,7 @@ const MFACode = require("../models/mfaCode");
 const emailService = require("../services/emailService");
 require("dotenv").config();
 const TokenBlacklist = require("../models/TokenBlacklist");
+const auditLogger = require("../logger/auditLogger");
 
 class AuthController {
   static generateTempToken(user) {
@@ -29,12 +30,14 @@ class AuthController {
       // Check if user exists
       const existingUser = await User.findByEmail(trimmedEmail);
       if (existingUser) {
+        auditLogger.info(`Registration failed - Email already registered: ${trimmedEmail}`); // Audit log
         return res.status(400).json({ error: "Email already registered" });
       }
 
       // Check if username is taken
       const existingByUsername = await User.findByUsername(trimmedUsername);
       if (existingByUsername) {
+        auditLogger.info(`Registration failed - Username already taken: ${trimmedUsername}`); // Audit log
         return res.status(400).json({ error: "Username already taken" });
       }
 
@@ -44,6 +47,8 @@ class AuthController {
       // Get created user
       const user = await User.findById(userId);
 
+      auditLogger.info(`New user registered: ${trimmedUsername} (${trimmedEmail})`); // Audit log
+      
       res.status(201).json({
         message: "User registered successfully",
         user: {
@@ -54,6 +59,7 @@ class AuthController {
         },
       });
     } catch (error) {
+      auditLogger.info(`Registration error: ${error.message}`); // Audit log
       console.error("Register error:", error);
       res.status(500).json({ error: "Registration failed" });
     }
@@ -107,6 +113,7 @@ class AuthController {
       // Find user
       const user = await User.findByEmail(email);
       if (!user) {
+        auditLogger.info(`Login failed - User not found: ${email}`); // Audit log
         return res.status(401).json({
           success: false,
           error: "Invalid credentials",
@@ -116,6 +123,7 @@ class AuthController {
       // Verify password
       const isValid = await User.comparePassword(password, user.password_hash);
       if (!isValid) {
+        auditLogger.info(`Login failed - Invalid password for user: ${email}`); // Audit log
         return res.status(401).json({
           success: false,
           error: "Invalid credentials",
@@ -125,6 +133,7 @@ class AuthController {
       // Check rate limiting
       const recentAttempts = await MFACode.getRecentAttempts(user.id);
       if (recentAttempts >= 5) {
+        auditLogger.info(`Login failed - Too many attempts for user: ${user.email}`); // Audit log
         return res.status(429).json({
           success: false,
           error: "Too many login attempts. Please try again in 15 minutes.",
@@ -139,7 +148,9 @@ class AuthController {
       // Send code via email
       try {
         await emailService.sendMFACode(user.email, code, user.username);
+        auditLogger.info(`MFA code sent to user: ${user.email}`); // Audit log
       } catch (error) {
+        auditLogger.error(`Failed to send MFA code to user: ${user.email} - ${error.message}`); // Audit log
         console.error("Failed to send MFA email:", error);
         return res.status(500).json({
           success: false,
@@ -190,6 +201,7 @@ class AuthController {
           });
         }
       } catch (error) {
+        auditLogger.info(`MFA verification failed - Invalid or expired token`); // Audit log
         return res.status(401).json({
           success: false,
           error: "Token expired or invalid",
@@ -201,6 +213,7 @@ class AuthController {
       const isValid = await MFACode.verify(decoded.id, code);
 
       if (!isValid) {
+        auditLogger.info(`MFA verification failed - Invalid code for user ID: ${decoded.id}`); // Audit log
         return res.status(401).json({
           success: false,
           error: "Invalid or expired verification code",
@@ -211,6 +224,7 @@ class AuthController {
       const user = await User.findById(decoded.id);
 
       if (!user) {
+        auditLogger.info(`MFA verification failed - User not found for ID: ${decoded.id}`); // Audit log
         return res.status(401).json({
           success: false,
           error: "User not found",
@@ -253,6 +267,7 @@ class AuthController {
         },
       });
     } catch (error) {
+      auditLogger.error(`MFA verification error: ${error.message}`); // Audit log
       console.error("MFA verification error:", error);
       res.status(500).json({
         success: false,
@@ -296,6 +311,7 @@ class AuthController {
       // Check rate limiting
       const recentAttempts = await MFACode.getRecentAttempts(decoded.id);
       if (recentAttempts >= 5) {
+        auditLogger.info(`MFA rate limit exceeded for user ID: ${decoded.id}`); // Audit log
         return res.status(429).json({
           success: false,
           error: "Too many attempts. Please wait 15 minutes.",
@@ -306,6 +322,7 @@ class AuthController {
       const user = await User.findById(decoded.user_id);
 
       if (!user) {
+        auditLogger.info(`MFA rate limit exceeded - User not found for ID: ${decoded.id}`); // Audit log
         return res.status(404).json({
           success: false,
           error: "User not found",
@@ -319,12 +336,14 @@ class AuthController {
 
       // Send email
       await emailService.sendMFACode(user.email, code, user.username);
+      auditLogger.info(`New MFA code resent to user: ${user.email}`); // Audit log
 
       res.json({
         success: true,
         message: "New verification code sent to your email",
       });
     } catch (error) {
+      auditLogger.error(`Resend MFA error: ${error.message}`); // Audit log
       console.error("Resend MFA error:", error);
       res.status(500).json({
         success: false,
@@ -352,6 +371,7 @@ class AuthController {
       const tokenData = await RefreshToken.findByToken(refreshToken);
 
       if (!tokenData) {
+        auditLogger.info(`Invalid refresh token attempt`); // Audit log
         return res.status(401).json({
           success: false,
           error: "Invalid or expired refresh token",
@@ -362,6 +382,7 @@ class AuthController {
       const user = await User.findById(tokenData.user_id);
 
       if (!user) {
+        auditLogger.info(`Invalid refresh token attempt - User not found: ${refreshToken}`); // Audit log
         return res.status(401).json({
           success: false,
           error: "User not found",
@@ -390,6 +411,8 @@ class AuthController {
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
+      auditLogger.info(`New refresh token issued for user: ${user.email}`); // Audit log
+
       res.json({
         success: true,
         accessToken: newAccessToken,
@@ -403,6 +426,7 @@ class AuthController {
         },
       });
     } catch (error) {
+      auditLogger.error(`Refresh token error: ${error.message}`); // Audit log
       console.error("Refresh token error:", error);
       res.status(500).json({
         success: false,
@@ -426,6 +450,8 @@ class AuthController {
 
       await TokenBlacklist.add(token, new Date(Date.now() + 15 * 60 * 1000)); // Blacklist for 15 mins
 
+      auditLogger.info(`User logged out: ${req.user ? req.user.username : 'Unknown'}`); // Audit log
+
       // Clear cookies
       res.clearCookie("accessToken");
       res.clearCookie("refreshToken");
@@ -435,6 +461,7 @@ class AuthController {
         message: "Logged out successfully",
       });
     } catch (error) {
+      auditLogger.error(`Logout error: ${error.message}`); // Audit log
       console.error("Logout error:", error);
       res.status(500).json({
         success: false,
@@ -454,6 +481,8 @@ class AuthController {
 
       await TokenBlacklist.add(token, new Date(Date.now() + 15 * 60 * 1000)); // Blacklist for 15 mins
 
+      auditLogger.info(`User logged out from all devices: ${req.user ? req.user.username : 'Unknown user'}`); // Audit log
+
       res.clearCookie("accessToken");
       res.clearCookie("refreshToken");
 
@@ -462,6 +491,7 @@ class AuthController {
         message: "Logged out from all devices",
       });
     } catch (error) {
+      auditLogger.error(`Logout all error: ${error.message}`); // Audit log
       console.error("Logout all error:", error);
       res.status(500).json({
         success: false,
