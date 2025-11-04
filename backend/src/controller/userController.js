@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const pool = require('../config/database');
+const auditLogger = require('../logger/auditLogger');
 
 class UserController {
   static async updateUserRole(req, res) {
@@ -20,10 +21,18 @@ class UserController {
         return res.status(404).json({ success: false, message: "User not found" });
       }
 
+      auditLogger.info('user.role.update', {
+        requestId: req.requestId,
+        actor: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        targetUserId: userId,
+        newRole,
+      });
+
       return res
         .status(200)
         .json({ success: true, message: "User role updated successfully" });
     } catch (error) {
+      auditLogger.error('user.role.update.error', { requestId: req.requestId, targetUserId: req.params.id || req.body.userId, message: error?.message });
       return res.status(500).json({
         success: false,
         message: "Error updating user role",
