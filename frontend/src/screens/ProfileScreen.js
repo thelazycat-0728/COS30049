@@ -13,11 +13,13 @@ import {
   Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
 const ProfileScreen = () => {
+  const navigation = useNavigation();
   const [user, setUser] = useState(null);
   const [observations, setObservations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -88,6 +90,31 @@ const ProfileScreen = () => {
       Alert.alert('Error', err.message || 'Failed to load profile');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const token = await getAuthToken();
+      // Call backend logout route
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }).catch(() => {});
+a
+      // Clear tokens locally
+      await AsyncStorage.removeItem('authToken');
+      await AsyncStorage.removeItem('refreshToken');
+
+      // Reset navigation to Login screen
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    } catch (err) {
+      // Ensure local logout even if API fails
+      await AsyncStorage.removeItem('authToken');
+      await AsyncStorage.removeItem('refreshToken');
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     }
   };
 
@@ -279,6 +306,16 @@ const ProfileScreen = () => {
           >
             <Ionicons name="key-outline" size={20} color="#666" />
             <Text style={styles.settingsButtonText}>Change Password</Text>
+            <Ionicons name="chevron-forward" size={16} color="#999" />
+          </TouchableOpacity>
+          {/* Logout Button */}
+          <View style={{ height: 8 }} />
+          <TouchableOpacity 
+            style={styles.settingsButton}
+            onPress={handleLogout}
+          >
+            <Ionicons name="log-out-outline" size={20} color="#666" />
+            <Text style={styles.settingsButtonText}>Log Out</Text>
             <Ionicons name="chevron-forward" size={16} color="#999" />
           </TouchableOpacity>
         </View>
