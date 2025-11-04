@@ -51,13 +51,13 @@ const MapScreen = () => {
   });
   const [pinCoords, setPinCoords] = useState(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
-  const [heatRadius, setHeatRadius] = useState(40);
-  const [heatOpacity, setHeatOpacity] = useState(0.7);
-  const [heatGradient, setHeatGradient] = useState({
+  const heatRadius = 40;
+  const heatOpacity = 0.7;
+  const heatGradient = {
     colors: ['rgba(79,195,247,0)', '#29b6f6', '#0288d1', '#ef6c00', '#d84315', '#b71c1c'],
     startPoints: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
     colorMapSize: 256,
-  });
+  };
   const [densityPoints, setDensityPoints] = useState([]);
   const [densityMax, setDensityMax] = useState(1);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
