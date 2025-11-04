@@ -3,6 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
+const auditMiddleware = require('./middleware/auditMiddleware');
+const errorLogger = require('./middleware/errorLogger');
 const plantsObservationRouter = require('./routes/plantsObservation.routes');
 const identifyRouter = require('./routes/identify.routes');
 const iotRouter = require('./routes/iot.routes');
@@ -23,6 +25,7 @@ const app = express();
 app.use(helmet()); // Security headers
 app.use(cors()); // Enable CORS
 app.use(morgan('dev')); // Logging
+app.use(auditMiddleware); // Audit every request
 app.use(express.json({ limit: '10mb' }));  // Parse JSON bodies
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/observations', plantsObservationRouter);
@@ -46,6 +49,6 @@ app.get('/health', (req, res) => {
 
 
 // Error handling (must be last)
-//app.use(errorHandler);
+app.use(errorLogger);
 
 module.exports = app;
