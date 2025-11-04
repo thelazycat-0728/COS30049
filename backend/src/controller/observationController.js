@@ -1,6 +1,7 @@
 const Observation = require("../models/Observation");
 const pool = require("../config/database");
 const StorageService = require("../services/storageService");
+const auditLogger = require('../logger/auditLogger');
 
 class ObservationController {
   /**
@@ -282,6 +283,13 @@ class ObservationController {
 
       // Get created observation
       const observation = await Observation.findById(observationId);
+      auditLogger.info('observation.create', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        observation_id: observationId,
+        plant_id: plantId,
+        public: isPublic,
+      });
 
       res.status(201).json({
         success: true,
@@ -295,6 +303,10 @@ class ObservationController {
       });
     } catch (error) {
       console.error("Create observation error:", error);
+      auditLogger.error('observation.create.error', {
+        requestId: req.requestId,
+        message: error?.message,
+      });
       res.status(500).json({
         success: false,
         error: "Failed to create observation",
@@ -411,6 +423,12 @@ class ObservationController {
 
       // Get updated observation
       const updatedObservation = await Observation.findById(id);
+      auditLogger.info('observation.update', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        observation_id: Number(id),
+        fields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
+      });
 
       res.json({
         success: true,
@@ -419,6 +437,11 @@ class ObservationController {
       });
     } catch (error) {
       console.error("Update observation error:", error);
+      auditLogger.error('observation.update.error', {
+        requestId: req.requestId,
+        observation_id: Number(req.params.id),
+        message: error?.message,
+      });
       res.status(500).json({
         success: false,
         error: "Failed to update observation",
@@ -458,6 +481,11 @@ class ObservationController {
 
       // Delete observation
       await Observation.delete(id);
+      auditLogger.info('observation.delete', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        observation_id: Number(id),
+      })
 
       res.json({
         success: true,
@@ -465,6 +493,11 @@ class ObservationController {
       });
     } catch (error) {
       console.error("Delete observation error:", error);
+      auditLogger.error('observation.delete.error', {
+        requestId: req.requestId,
+        observation_id: Number(req.params.id),
+        message: error?.message,
+      });
       res.status(500).json({
         success: false,
         error: "Failed to delete observation",
@@ -499,9 +532,20 @@ class ObservationController {
       if (result.affectedRows === 0) {
         return res.status(404).json({ success: false, error: 'Observation not found' });
       }
+      auditLogger.info('observation.toggle_public', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        observation_id: id,
+        public: !!newVal,
+      });
       return res.json({ success: true, observation_id: id, public: !!newVal });
     } catch (err) {
       console.error('Error updating public flag:', err);
+      auditLogger.error('observation.toggle_public.error', {
+        requestId: req.requestId,
+        observation_id: Number(req.params.id),
+        message: err?.message,
+      });
       res.status(500).json({ success: false, error: 'Failed to update public flag' });
     }
   }
@@ -553,6 +597,13 @@ class ObservationController {
         [id]
       );
       const r = rows[0];
+      auditLogger.info('observation.update_geotag', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        observation_id: id,
+        latitude,
+        longitude,
+      });
       return res.json({
         success: true,
         observation: r ? {
@@ -574,6 +625,11 @@ class ObservationController {
       });
     } catch (err) {
       console.error('Error updating geotag:', err);
+      auditLogger.error('observation.update_geotag.error', {
+        requestId: req.requestId,
+        observation_id: Number(req.params.id),
+        message: err?.message,
+      });
       res.status(500).json({ success: false, error: 'Failed to update geotag' });
     }
   }
@@ -599,9 +655,19 @@ class ObservationController {
       if (result.affectedRows === 0) {
         return res.status(404).json({ success: false, error: 'Observation not found' });
       }
+      auditLogger.info('observation.remove_geotag', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        observation_id: id,
+      });
       return res.json({ success: true });
     } catch (err) {
       console.error('Error removing geotag:', err);
+      auditLogger.error('observation.remove_geotag.error', {
+        requestId: req.requestId,
+        observation_id: id,
+        message: err?.message,
+      });
       res.status(500).json({ success: false, error: 'Failed to remove geotag' });
     }
   }
