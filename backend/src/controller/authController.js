@@ -517,6 +517,7 @@ class AuthController {
     try {
       const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
 
+
       if (refreshToken) {
         await RefreshToken.revoke(refreshToken);
       }

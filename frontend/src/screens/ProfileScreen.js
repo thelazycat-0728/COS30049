@@ -12,6 +12,7 @@ import {
   TextInput,
   Modal
 } from 'react-native';
+import TokenRefreshService from '../services/TokenRefreshService';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -39,6 +40,14 @@ const ProfileScreen = () => {
       return null;
     }
   };
+
+  const getRefreshToken = async () => {
+    try {
+      return await AsyncStorage.getItem('refreshToken');
+    } catch (e) {
+      return null;
+    }
+  }
 
   // Fetch user profile and observations
   useEffect(() => {
@@ -95,13 +104,17 @@ const ProfileScreen = () => {
 
   const handleLogout = async () => {
     try {
-      const token = await getAuthToken();
+      const refreshToken = await getRefreshToken();
+      const authToken = await getAuthToken();
+      TokenRefreshService.stopAutoRefresh();
       // Call backend logout route
       await fetch(`${API_BASE}/auth/logout`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
         },
+        body: JSON.stringify({ refreshToken }),
       }).catch(() => {});
 a
       // Clear tokens locally
@@ -112,6 +125,7 @@ a
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (err) {
       // Ensure local logout even if API fails
+      TokenRefreshService.stopAutoRefresh();
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('refreshToken');
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
@@ -121,6 +135,7 @@ a
   const handleUpdateProfile = async () => {
     try {
       setSaving(true);
+      
       const token = await getAuthToken();
       
       const res = await fetch(`${API_BASE}/profile`, {
