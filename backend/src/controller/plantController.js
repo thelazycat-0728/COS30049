@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const StorageService = require('../services/storageService');
+const auditLogger = require('../logger/auditLogger');
 
 // Allowed conservation status values
 const CONSERVATION_STATUSES = [
@@ -213,10 +214,20 @@ class PlantController {
       );
       const insertId = result.insertId;
       const [rows] = await pool.execute('SELECT * FROM Plants WHERE plant_id = ?', [insertId]);
+      auditLogger.info('plant.create', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        plant_id: insertId,
+        common_name,
+        scientific_name,
+      });
       res.status(201).json({ success: true, plant: rows[0] });
     } catch (err) {
       console.error('Error creating plant:', err);
-      
+      auditLogger.error('plant.create.error', {
+        requestId: req.requestId,
+        message: err?.message,
+      });
       // Provide more specific error messages for common database errors
       if (err.code === 'ER_DUP_ENTRY') {
         return res.status(400).json({ 
@@ -336,10 +347,20 @@ class PlantController {
       }
       
       const [rows] = await pool.execute('SELECT * FROM Plants WHERE plant_id = ?', [id]);
+      auditLogger.info('plant.update', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        plant_id: Number(id),
+        fieldsUpdated: fields.map(f => f.split('=')[0].trim()),
+      });
       res.json({ success: true, plant: rows[0] });
     } catch (err) {
       console.error('Error updating plant:', err);
-      
+      auditLogger.error('plant.update.error', {
+        requestId: req.requestId,
+        plant_id: Number(req.params.plant_id),
+        message: err?.message,
+      });
       // Provide more specific error messages for common database errors
       if (err.code === 'ER_DUP_ENTRY') {
         return res.status(400).json({ 
@@ -359,9 +380,20 @@ class PlantController {
       if (result.affectedRows === 0) {
         return res.status(404).json({ success: false, error: 'Plant not found' });
       }
+      auditLogger.info('plant.delete', {
+        requestId: req.requestId,
+        user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+        plant_id: Number(id),
+      });
       res.json({ success: true, deleted_id: Number(id) });
     } catch (err) {
       console.error('Error deleting plant:', err);
+      auditLogger.error('plant.delete.error', {
+        requestId: req.requestId,
+        plant_id: Number(req.params.plant_id),
+        code: err?.code,
+        message: err?.message,
+      });
       let message = 'Failed to delete plant due to server error';
       if (err && err.code === 'ER_ROW_IS_REFERENCED_2') {
         message = 'Cannot delete plant with existing observations';
