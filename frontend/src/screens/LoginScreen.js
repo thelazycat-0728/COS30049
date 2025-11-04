@@ -65,7 +65,7 @@ const LoginScreen = ({ navigation }) => {
       }
 
       // Success: navigate to the main app directly without alert
-      navigation.navigate("MFA", { email: data.email, tempToken: tempToken });
+      navigation.navigate("MFA", { user: { email }, tempToken, login: true });
     } catch (e) {
       console.log(e);
       Alert.alert("Network error", "Unable to login. Please try again.");

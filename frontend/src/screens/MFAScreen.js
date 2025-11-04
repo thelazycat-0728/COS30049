@@ -11,6 +11,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  BackHandler
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,7 +20,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
 const MFAScreen = ({ route, navigation }) => {
-  const { email, tempToken } = route.params || {};
+  const { user, tempToken, login } = route.params || {};
+
+  const { username, email, password } = user || {};
   
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
@@ -36,6 +39,18 @@ const MFAScreen = ({ route, navigation }) => {
       return () => clearTimeout(timer);
     }
   }, [countdown]);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        handleGoBack();
+        return true;
+      }
+    );
+
+    return () => backHandler.remove();
+  }, [login]);
 
   /**
    * Handle code input
@@ -92,20 +107,32 @@ const MFAScreen = ({ route, navigation }) => {
         body: JSON.stringify({
           tempToken,
           code: verificationCode,
+          login
         }),
       });
 
       const data = await response.json();
 
       if (response.ok && data.success) {
-        const accessToken = data?.accessToken;
-        const refreshToken = data?.refreshToken;
+        if (login) {
+          const accessToken = data?.accessToken;
+          const refreshToken = data?.refreshToken;
 
-        await AsyncStorage.setItem('authToken', accessToken);
-        await AsyncStorage.setItem('refreshToken', refreshToken);
+          await AsyncStorage.setItem('authToken', accessToken);
+          await AsyncStorage.setItem('refreshToken', refreshToken);
+
+          
+          
+          // Automatically navigate to the main app after successful login
+          navigation.navigate('MainApp');
+        }
+
+        else{
+          Alert.alert('Success', 'MFA verified. You can now log in.', [
+            { text: 'OK', onPress: () => navigation.navigate('Login') }
+          ]);
+        }
         
-        // Automatically navigate to the main app after successful login
-        navigation.navigate('MainApp');
 
       } else {
         Alert.alert('Error', data.error || 'Invalid verification code');
@@ -167,7 +194,27 @@ const MFAScreen = ({ route, navigation }) => {
         {
           text: 'Go Back',
           style: 'destructive',
-          onPress: () => navigation.goBack(),
+          onPress: () => {
+            if (!login) {
+              const cleanupRegistration = async () => {
+                try {
+                  await fetch(`${API_BASE}/auth/cleanup`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${tempToken}`,
+                    }
+                  });
+                } catch (error) {
+                  console.error('Cleanup registration error:', error);
+                }
+              };
+
+              cleanupRegistration().finally(() => {
+                navigation.goBack();
+              });
+            }
+          }
         },
       ]
     );

@@ -24,35 +24,45 @@ class AuthController {
   static async register(req, res) {
     try {
       const { username, email, password } = req.body;
-      const trimmedUsername = (username || '').trim();
-      const trimmedEmail = (email || '').trim().toLowerCase();
+      const trimmedUsername = (username || "").trim();
+      const trimmedEmail = (email || "").trim().toLowerCase();
 
       // Check if user exists
       const existingUser = await User.findByEmail(trimmedEmail);
       if (existingUser) {
-        auditLogger.info(`Registration failed - Email already registered: ${trimmedEmail}`); // Audit log
+        auditLogger.info(
+          `Registration failed - Email already registered: ${trimmedEmail}`
+        ); // Audit log
         return res.status(400).json({ error: "Email already registered" });
       }
 
       // Check if username is taken
       const existingByUsername = await User.findByUsername(trimmedUsername);
       if (existingByUsername) {
-        auditLogger.info(`Registration failed - Username already taken: ${trimmedUsername}`); // Audit log
+        auditLogger.info(
+          `Registration failed - Username already taken: ${trimmedUsername}`
+        ); // Audit log
         return res.status(400).json({ error: "Username already taken" });
       }
 
       // Create user (model handles password hashing)
-      const userId = await User.create({ username: trimmedUsername, email: trimmedEmail, password });
+      const userId = await User.create({
+        username: trimmedUsername,
+        email: trimmedEmail,
+        password,
+      });
 
       // Get created user
       const user = await User.findById(userId);
 
-      auditLogger.info(`New user registered: ${trimmedUsername} (${trimmedEmail})`); // Audit log
-      
+      auditLogger.info(
+        `New user registered: ${trimmedUsername} (${trimmedEmail})`
+      ); // Audit log
+
       res.status(201).json({
         message: "User registered successfully",
         user: {
-          id: user.user_id,
+          user_id: user.user_id,
           username: user.username,
           email: user.email,
           role: user.role,
@@ -68,15 +78,19 @@ class AuthController {
   // GET /api/auth/check-username?username=...
   static async checkUsername(req, res) {
     try {
-      const username = (req.query.username || '').trim();
+      const username = (req.query.username || "").trim();
       if (!username || username.length < 2) {
-        return res.status(400).json({ success: false, error: 'username is required' });
+        return res
+          .status(400)
+          .json({ success: false, error: "username is required" });
       }
       const existing = await User.findByUsername(username);
       return res.json({ success: true, exists: !!existing });
     } catch (error) {
-      console.error('checkUsername error:', error);
-      return res.status(500).json({ success: false, error: 'Failed to check username' });
+      console.error("checkUsername error:", error);
+      return res
+        .status(500)
+        .json({ success: false, error: "Failed to check username" });
     }
   }
 
@@ -133,7 +147,9 @@ class AuthController {
       // Check rate limiting
       const recentAttempts = await MFACode.getRecentAttempts(user.id);
       if (recentAttempts >= 5) {
-        auditLogger.info(`Login failed - Too many attempts for user: ${user.email}`); // Audit log
+        auditLogger.info(
+          `Login failed - Too many attempts for user: ${user.email}`
+        ); // Audit log
         return res.status(429).json({
           success: false,
           error: "Too many login attempts. Please try again in 15 minutes.",
@@ -150,7 +166,9 @@ class AuthController {
         await emailService.sendMFACode(user.email, code, user.username);
         auditLogger.info(`MFA code sent to user: ${user.email}`); // Audit log
       } catch (error) {
-        auditLogger.error(`Failed to send MFA code to user: ${user.email} - ${error.message}`); // Audit log
+        auditLogger.error(
+          `Failed to send MFA code to user: ${user.email} - ${error.message}`
+        ); // Audit log
         console.error("Failed to send MFA email:", error);
         return res.status(500).json({
           success: false,
@@ -177,9 +195,46 @@ class AuthController {
     }
   }
 
+  static async requestMFA(req, res) {
+    try {
+      const { user } = req.body;
+      console.log(user);
+      if (!user.user.email || !user.user.role) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Invalid user data" });
+      }
+
+      // Check rate limiting
+      const ipAddress = req.ip || req.connection.remoteAddress;
+      const userAgent = req.headers["user-agent"];
+      const code = await MFACode.create(
+        user.user.user_id,
+        ipAddress,
+        userAgent
+      );
+
+      console.log(user.user);
+      const tempToken = AuthController.generateTempToken(user.user);
+      await emailService.sendMFACode(user.user.email, code, user.user.username);
+
+      res.json({
+        success: true,
+        message: "Verification code sent to email",
+        tempToken,
+      });
+    } catch (error) {
+      console.error("MFA request error:", error);
+      res.status(500).json({
+        success: false,
+        error: "MFA request failed",
+      });
+    }
+  }
+
   static async verifyMFA(req, res) {
     try {
-      const { code, tempToken } = req.body;
+      const { code, tempToken, login } = req.body;
 
       // Validate input
       if (!code || !tempToken) {
@@ -191,9 +246,10 @@ class AuthController {
 
       // Verify temporary token
       let decoded;
+
       try {
         decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
-
+        console.log(decoded);
         if (!decoded.temp) {
           return res.status(401).json({
             success: false,
@@ -213,10 +269,23 @@ class AuthController {
       const isValid = await MFACode.verify(decoded.id, code);
 
       if (!isValid) {
-        auditLogger.info(`MFA verification failed - Invalid code for user ID: ${decoded.id}`); // Audit log
+        auditLogger.info(
+          `MFA verification failed - Invalid code for user ID: ${decoded.id}`
+        ); // Audit log
         return res.status(401).json({
           success: false,
           error: "Invalid or expired verification code",
+        });
+      }
+
+      if (!login) {
+        return res.json({
+          success: true,
+          message: "MFA verification successful",
+          user: {
+            id: decoded.id,
+            email: decoded.email,
+          },
         });
       }
 
@@ -224,7 +293,9 @@ class AuthController {
       const user = await User.findById(decoded.id);
 
       if (!user) {
-        auditLogger.info(`MFA verification failed - User not found for ID: ${decoded.id}`); // Audit log
+        auditLogger.info(
+          `MFA verification failed - User not found for ID: ${decoded.id}`
+        ); // Audit log
         return res.status(401).json({
           success: false,
           error: "User not found",
@@ -322,7 +393,9 @@ class AuthController {
       const user = await User.findById(decoded.user_id);
 
       if (!user) {
-        auditLogger.info(`MFA rate limit exceeded - User not found for ID: ${decoded.id}`); // Audit log
+        auditLogger.info(
+          `MFA rate limit exceeded - User not found for ID: ${decoded.id}`
+        ); // Audit log
         return res.status(404).json({
           success: false,
           error: "User not found",
@@ -382,7 +455,9 @@ class AuthController {
       const user = await User.findById(tokenData.user_id);
 
       if (!user) {
-        auditLogger.info(`Invalid refresh token attempt - User not found: ${refreshToken}`); // Audit log
+        auditLogger.info(
+          `Invalid refresh token attempt - User not found: ${refreshToken}`
+        ); // Audit log
         return res.status(401).json({
           success: false,
           error: "User not found",
@@ -450,7 +525,9 @@ class AuthController {
 
       await TokenBlacklist.add(token, new Date(Date.now() + 15 * 60 * 1000)); // Blacklist for 15 mins
 
-      auditLogger.info(`User logged out: ${req.user ? req.user.username : 'Unknown'}`); // Audit log
+      auditLogger.info(
+        `User logged out: ${req.user ? req.user.username : "Unknown"}`
+      ); // Audit log
 
       // Clear cookies
       res.clearCookie("accessToken");
@@ -481,7 +558,11 @@ class AuthController {
 
       await TokenBlacklist.add(token, new Date(Date.now() + 15 * 60 * 1000)); // Blacklist for 15 mins
 
-      auditLogger.info(`User logged out from all devices: ${req.user ? req.user.username : 'Unknown user'}`); // Audit log
+      auditLogger.info(
+        `User logged out from all devices: ${
+          req.user ? req.user.username : "Unknown user"
+        }`
+      ); // Audit log
 
       res.clearCookie("accessToken");
       res.clearCookie("refreshToken");
@@ -508,6 +589,81 @@ class AuthController {
         message: `Cleaned up ${deletedCount} expired tokens`,
       });
     } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: "Cleanup failed",
+      });
+    }
+  }
+
+  static async cleanUp(req, res) {
+    try {
+      const authHeader = req.headers.authorization;
+
+      if (!authHeader) {
+        return res.status(401).json({
+          success: false,
+          error: "Authorization header missing",
+        });
+      }
+
+      if (!authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({
+          success: false,
+          error: "Invalid authorization format. Use: Bearer <token>",
+        });
+      }
+
+      const token = authHeader.substring(7);
+
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          error: "Token not provided",
+        });
+      }
+
+      let decoded;
+
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        if (!decoded.temp) {
+          auditLogger.warn(
+            `Cleanup attempt with non-temp token from IP: ${req.ip}`
+          );
+          return res.status(403).json({
+            success: false,
+            error: "Invalid token type. Temporary token required.",
+          });
+        }
+      } catch (error) {
+        auditLogger.warn(`Invalid token in cleanup attempt: ${error.message}`);
+
+        if (error.name === "TokenExpiredError") {
+          return res.status(401).json({
+            success: false,
+            error: "Token has expired",
+          });
+        }
+
+        return res.status(401).json({
+          success: false,
+          error: "Invalid token",
+        });
+      }
+
+      User.delete(decoded.id);
+      RefreshToken.revokeAllForUser(decoded.id);
+
+
+      return res.json({
+        success: true,
+        message: "User data cleanup successful",
+      });
+
+    } catch (error) {
+      console.error("Cleanup error:", error);
       res.status(500).json({
         success: false,
         error: "Cleanup failed",

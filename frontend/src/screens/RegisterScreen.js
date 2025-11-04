@@ -91,27 +91,32 @@ const RegisterScreen = ({ navigation }) => {
       setSubmitting(true);
 
       
+
       
 
-      // Secure API request (JSON, POST). Backend hashes and stores securely.
       const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, email: emailTrimmed, password }),
       });
 
-      const data = await res.json().catch(() => null);
+      const userData = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        const msg = data?.error || `Registration failed (HTTP ${res.status})`;
-        Alert.alert('Error', msg);
-        return;
-      }
+      console.log('Debug: registration response', userData);
+      
+      const {tempToken} = await fetch(`${API_BASE}/auth/request-mfa`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: userData }),
+      }).then(res => res.json());
 
+      navigation.navigate('MFA', { user: userData, tempToken, login: false });
+
+
+
+      
       // Success: backend persists user; prompt login for MFA flow
-      Alert.alert('Success', 'Account created. Please sign in.', [
-        { text: 'OK', onPress: () => navigation.navigate('Login') }
-      ]);
+      
     } catch (e) {
       console.log(e);
       Alert.alert('Network error', 'Unable to register. Please try again.');

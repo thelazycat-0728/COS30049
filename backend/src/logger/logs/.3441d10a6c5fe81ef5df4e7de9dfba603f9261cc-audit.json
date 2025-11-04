@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 7
+    },
+    "auditLog": "C:\\COS30049\\backend\\src\\logger\\logs\\.3441d10a6c5fe81ef5df4e7de9dfba603f9261cc-audit.json",
+    "files": [
+        {
+            "date": 1762237359380,
+            "name": "C:\\COS30049\\backend\\src\\logger\\logs\\audit-2025-11-04.log",
+            "hash": "bf93918a1a29f427b6a82dd66ac1e90bceac28f5b3fe4e0e790a2ae7fd748400"
+        }
+    ],
+    "hashType": "sha256"
+}

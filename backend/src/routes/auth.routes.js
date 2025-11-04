@@ -9,6 +9,8 @@ authRouter.post("/login", loginLimiter, authController.login);
 
 authRouter.post("/register", authController.register);
 
+authRouter.post('/cleanup', authController.cleanUp);
+
 authRouter.get("/check-username", authController.checkUsername);
 
 authRouter.post("/logout", auth.requireAuth, authController.logout);
@@ -16,6 +18,8 @@ authRouter.post("/logout", auth.requireAuth, authController.logout);
 authRouter.post("/logout-all", auth.requireAuth, authController.logoutAll);
 
 authRouter.post("/refresh-token", authController.refresh);
+
+authRouter.post("/request-mfa", authController.requestMFA);
 
 authRouter.post("/verify-mfa",  authController.verifyMFA);
 
