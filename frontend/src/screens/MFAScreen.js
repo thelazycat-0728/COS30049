@@ -104,19 +104,8 @@ const MFAScreen = ({ route, navigation }) => {
         await AsyncStorage.setItem('authToken', accessToken);
         await AsyncStorage.setItem('refreshToken', refreshToken);
         
-        Alert.alert(
-          'Success',
-          'Login successful!',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                // Navigate to main app
-                navigation.navigate('MainApp');
-              },
-            },
-          ]
-        );
+        // Automatically navigate to the main app after successful login
+        navigation.navigate('MainApp');
 
       } else {
         Alert.alert('Error', data.error || 'Invalid verification code');
