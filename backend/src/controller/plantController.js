@@ -1,6 +1,9 @@
 const pool = require('../config/database');
 const StorageService = require('../services/storageService');
 const auditLogger = require('../logger/auditLogger');
+const axios = require('axios');
+
+const AI_BACKEND_URL = process.env.AI_BACKEND_URL;
 
 // Allowed conservation status values
 const CONSERVATION_STATUSES = [
@@ -213,6 +216,17 @@ class PlantController {
         ]
       );
       const insertId = result.insertId;
+
+      // Create dataset folder in AI backend
+      try {
+        await axios.post(`${AI_BACKEND_URL}/api/dataset/folder`, {
+          folderName: scientific_name.trim()
+        });
+        console.log(`Created dataset folder for: ${scientific_name.trim()}`);
+      } catch (datasetError) {
+        console.warn('Failed to create dataset folder:', datasetError.response?.data || datasetError.message);
+      }
+
       const [rows] = await pool.execute('SELECT * FROM Plants WHERE plant_id = ?', [insertId]);
       auditLogger.info('plant.create', {
         requestId: req.requestId,
@@ -257,6 +271,8 @@ class PlantController {
       if (!existingRows || existingRows.length === 0) {
         return res.status(404).json({ success: false, error: 'Plant not found' });
       }
+
+      const oldName = existingRows[0].scientific_name;
 
       // Validate required fields one at a time with user-friendly names
       if (common_name !== undefined && (!common_name || common_name.trim() === '')) {
@@ -344,6 +360,19 @@ class PlantController {
       
       if (result.affectedRows === 0) {
         return res.status(404).json({ success: false, error: 'Plant not found' });
+      }
+
+      //Rename dataset folder if name changed
+      if (scientific_name && scientific_name.trim() !== oldName) {
+        try {
+          await axios.patch(`${AI_BACKEND_URL}/api/dataset/folder`, {
+            oldName,
+            newName: scientific_name.trim()
+          });
+          console.log(`Renamed dataset folder from "${oldName}" to "${scientific_name.trim()}"`);
+        } catch (datasetError) {
+          console.warn('Failed to rename dataset folder:', datasetError.response?.data || datasetError.message);
+        }
       }
       
       const [rows] = await pool.execute('SELECT * FROM Plants WHERE plant_id = ?', [id]);
