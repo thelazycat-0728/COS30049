@@ -68,7 +68,7 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
     if (trainingStatus?.isTraining) {
       interval = setInterval(() => {
         checkTrainingStatus();
-      }, 8000);
+      }, 3000);   //(3 seconds)
     }
     return () => {
       if (interval) clearInterval(interval);
