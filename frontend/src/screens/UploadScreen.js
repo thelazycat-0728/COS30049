@@ -17,11 +17,13 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { useNavigation } from '@react-navigation/native';
 //import PlantClassifierService from "../services/PlantClassifierService";     (unused for now)
 
 import NetInfo from "@react-native-community/netinfo";
 
 const UploadScreen = () => {
+  const navigation = useNavigation();
   const [image, setImage] = useState(null);
   const [plantName, setPlantName] = useState("");
   const [scientificName, setScientificName] = useState("");
@@ -764,9 +766,34 @@ const UploadScreen = () => {
                   styles.predictionItem,
                   index === 0 && styles.topPrediction,
                 ]}
-                onPress={() => {
+                onPress={async () => { 
                   setPlantName(prediction.species);
                   setConfidenceScore(prediction.confidence);
+                  
+                  try {
+                    // Fetch plant details first
+                    const searchUrl = `${API_BASE}/identify/search-plant?plantName=${encodeURIComponent(prediction.species)}`;
+                    const searchRes = await fetch(searchUrl);
+                    const searchData = await searchRes.json();
+                    
+                    if (searchData.success && searchData.found) {
+                      // Navigate with plant data and origin parameter for back navigation
+                      navigation.navigate('PlantDetail', {
+                        plant: {
+                          plant_id: searchData.plant.plant_id,
+                          common_name: searchData.plant.common_name,
+                          scientific_name: searchData.plant.scientific_name,
+                          image_url: searchData.plant.image_url,
+                        },
+                        origin: 'Upload', 
+                      });
+                    } else {
+                      Alert.alert('Plant not found', `No detailed information found for "${prediction.species}".`);
+                    }
+                  } catch (err) {
+                    console.error('Navigation error:', err);
+                    Alert.alert('Error', 'Failed to load plant details.');
+                  }
                 }}
               >
                 <View style={styles.predictionContent}>
@@ -1628,6 +1655,19 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 4,
     marginLeft: 36,
+  },
+  predictionItem: {
+    backgroundColor: "white",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
 });
 
