@@ -1,32 +1,33 @@
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs').promises;
-const fsSync = require('fs');
-const aiServerService = require('../services/AiServerTraining');
 const auditLogger = require('../logger/auditLogger');
-
-// Path
-const MODELS_DIR = path.join(__dirname, '../../ml/models');
-const ACTIVE_MODEL_PATH = path.join(__dirname, '../../ml/active_model.txt');
+const axios = require('axios');
+const AI_BACKEND_URL = process.env.AI_BACKEND_URL;
+const MAIN_BACKEND_URL = process.env.MAIN_BACKEND_URL
 
 // Start model training
 const startTraining = async (req, res) => {
   try {
-    const result = await aiServerService.startTraining(req.body);
+    const trainingParams = {
+      ...req.body,
+      callbackUrl: MAIN_BACKEND_URL
+    };
+
+    const response = await axios.post(`${AI_BACKEND_URL}/api/train`, trainingParams);
+    
     auditLogger.info('training.start', {
       requestId: req.requestId,
       user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
       params: req.body,
-      result,
+      result: response.data,
     });
-    res.json(result);
+    
+    res.json(response.data);
   } catch (error) {
     console.error('Error starting training:', error);
     auditLogger.error('training.start.error', { requestId: req.requestId, message: error?.message });
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
       error: 'Failed to start training',
-      message: error.message
+      message: error.response?.data?.message || error.message
     });
   }
 };
@@ -34,14 +35,14 @@ const startTraining = async (req, res) => {
 // Get current training status
 const getTrainingStatus = async (req, res) => {
   try {
-    const result = await aiServerService.getTrainingStatus();
-    auditLogger.info('training.status', { requestId: req.requestId, result });
-    res.json(result);
+    const response = await axios.get(`${AI_BACKEND_URL}/api/train/status`);
+    auditLogger.info('training.status', { requestId: req.requestId, result: response.data });
+    res.json(response.data);
   } catch (error) {
     auditLogger.error('training.status.error', { requestId: req.requestId, message: error?.message });
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
-      error: error.message
+      error: error.response?.data?.message || error.message
     });
   }
 };
@@ -49,14 +50,14 @@ const getTrainingStatus = async (req, res) => {
 // Stop training process
 const stopTraining = async (req, res) => {
   try {
-    const result = await aiServerService.stopTraining();
-    auditLogger.info('training.stop', { requestId: req.requestId, result });
-    res.json(result);
+    const response = await axios.post(`${AI_BACKEND_URL}/api/train/stop`);
+    auditLogger.info('training.stop', { requestId: req.requestId, result: response.data });
+    res.json(response.data);
   } catch (error) {
     auditLogger.error('training.stop.error', { requestId: req.requestId, message: error?.message });
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
-      error: error.message
+      error: error.response?.data?.message || error.message
     });
   }
 };
@@ -64,286 +65,69 @@ const stopTraining = async (req, res) => {
 // Get list of trained models with pagination, filtering, sorting, and search
 const getModels = async (req, res) => {
   try {
-    // Parse pagination params: support limit/offset or page/size
-    const sizeQ = req.query.limit ?? req.query.size;
-    const pageQ = req.query.page;
-    const offsetQ = req.query.offset;
-
-    // Parse filter, search, and NEW sort parameters
-    const searchQuery = req.query.search || '';
-    const filterOption = req.query.filter || 'all';
-    const sortBy = req.query.sortBy || 'created_at';
-    const sortOrder = req.query.sortOrder || 'DESC';
-
-    console.log('Received query params:', {
-      search: searchQuery,
-      filter: filterOption,
-      sortBy: sortBy,
-      sortOrder: sortOrder,
-      page: pageQ,
-      limit: sizeQ
+    const response = await axios.get(`${AI_BACKEND_URL}/api/models`, {
+      params: req.query  // Pass all query params (page, limit, search, filter, sortBy, sortOrder)
     });
-
-    // Validate and set size (limit)
-    let size = Number(sizeQ);
-    if (!Number.isFinite(size) || size <= 0) size = 10;
-    if (size > 100) size = 100;
-
-    // Validate and set offset
-    let offset = Number(offsetQ);
-    if (!Number.isFinite(offset) || offset < 0) {
-      const pageNum = Number(pageQ);
-      if (Number.isFinite(pageNum) && pageNum > 0) {
-        offset = (pageNum - 1) * size;
-      } else {
-        offset = 0;
-      }
-    }
-
-    // Read all directories in models folder (each training creates a folder)
-    const items = await fs.readdir(MODELS_DIR, { withFileTypes: true });
-    const modelDirs = items.filter(item => item.isDirectory());
     
-    console.log(`Found ${modelDirs.length} model directories`);
-    
-    // Get active model
-    let activeModel = null;
-    try {
-      activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
-      activeModel = activeModel.trim();
-      console.log('Active model:', activeModel);
-    } catch (error) {
-      console.log('No active model set');
-    }
-
-    // Get model details for all models
-    let allModels = await Promise.all(
-      modelDirs.map(async (dir) => {
-        const dirPath = path.join(MODELS_DIR, dir.name);
-        const stats = await fs.stat(dirPath);
-        
-        // Check for model files in directory
-        const dirFiles = await fs.readdir(dirPath);
-        const hasBestModel = dirFiles.includes('best_model.pth');
-        const hasFinalModel = dirFiles.includes('mobilenetv2_final.pth');
-        const hasLabelMap = dirFiles.includes('label_map.json');
-        
-        // Get total size
-        let totalSize = 0;
-        for (const file of dirFiles) {
-          const fileStats = await fs.stat(path.join(dirPath, file));
-          totalSize += fileStats.size;
-        }
-        
-        return {
-          id: dir.name,
-          name: dir.name,
-          created: stats.birthtime,
-          size: totalSize,
-          active: activeModel === dir.name,
-          path: dirPath,
-          hasBestModel,
-          hasFinalModel,
-          hasLabelMap
-        };
-      })
-    );
-
-    console.log(`Processing ${allModels.length} models before filtering`);
-
-    // Apply search filter
-    if (searchQuery) {
-      const searchLower = searchQuery.toLowerCase();
-      allModels = allModels.filter(model => 
-        model.name.toLowerCase().includes(searchLower)
-      );
-      console.log(`After search filter: ${allModels.length} models`);
-    }
-
-    // Apply status filter
-    if (filterOption === 'active') {
-      allModels = allModels.filter(model => model.active);
-      console.log(`After active filter: ${allModels.length} models`);
-    } else if (filterOption === 'inactive') {
-      allModels = allModels.filter(model => !model.active);
-      console.log(`After inactive filter: ${allModels.length} models`);
-    }
-
-    // Apply sorting with direction support
-    console.log(`Sorting by: ${sortBy}, order: ${sortOrder}`);
-    switch (sortBy) {
-      case 'name':
-        allModels.sort((a, b) => {
-          const comparison = a.name.localeCompare(b.name);
-          return sortOrder === 'ASC' ? comparison : -comparison;
-        });
-        console.log('Sorted by name');
-        break;
-      case 'size':
-        allModels.sort((a, b) => {
-          const comparison = a.size - b.size;
-          return sortOrder === 'ASC' ? comparison : -comparison;
-        });
-        console.log('Sorted by size');
-        break;
-      case 'created_at':
-      default:
-        allModels.sort((a, b) => {
-          const comparison = new Date(a.created) - new Date(b.created);
-          return sortOrder === 'ASC' ? comparison : -comparison;
-        });
-        console.log('Sorted by creation date');
-        break;
-    }
-
-    // Calculate total count after filtering
-    const total = allModels.length;
-
-    // Apply pagination - slice the array for current page
-    const paginatedModels = allModels.slice(offset, offset + size);
-
-    // Derive current page if not provided
-    const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 ? Number(pageQ) : Math.floor(offset / size) + 1;
-
-    console.log(`Returning ${paginatedModels.length} models for page ${currentPage}`);
-    console.log('First model sample:', paginatedModels[0] ? {
-      name: paginatedModels[0].name,
-      created: paginatedModels[0].created,
-      size: paginatedModels[0].size,
-      active: paginatedModels[0].active
-    } : 'No models');
-
-    res.json({
-      success: true,
-      models: paginatedModels,
-      total,
-      page: currentPage,
-      size,
-      pagination: {
-        total,
-        page: currentPage,
-        size,
-        totalPages: Math.ceil(total / size)
-      },
-      filters: {
-        search: searchQuery,
-        filter: filterOption,
-        sortBy: sortBy,
-        sortOrder: sortOrder
-      }
-    });
-
+    res.json(response.data);
   } catch (error) {
     console.error('Error getting models:', error);
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
       message: 'Failed to get models',
-      error: error.message
+      error: error.response?.data?.message || error.message
     });
   }
 };
 
-// ... rest of the trainingController.js remains the same ...
 const deleteModel = async (req, res) => {
   try {
     const { modelName } = req.params;
-    const forceDelete = req.query.force === 'true';
-    
-    console.log(`Delete request for model: ${modelName}, force: ${forceDelete}`);
-    
-    const modelDir = path.join(MODELS_DIR, modelName);
-    
-    // Check if model directory exists
-    try {
-      await fs.access(modelDir);
-      console.log(`Model directory found: ${modelDir}`);
-    } catch (error) {
-      console.log(`Model directory not found: ${modelDir}`);
-      return res.status(404).json({
-        success: false,
-        message: `Model "${modelName}" not found`
-      });
-    }
-
-    // Check if it's the active model (unless force delete)
-    let activeModel = null;
-    try {
-      activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
-      activeModel = activeModel.trim();
-      console.log(`Active model: ${activeModel}`);
-    } catch (error) {
-      console.log('No active model set');
-    }
-
-    if (activeModel === modelName && !forceDelete) { 
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete active model. Please activate another model first or use force delete.'
-      });
-    }
-
-    // Delete the entire model directory
-    console.log(`Deleting model directory: ${modelDir}`);
-    await fs.rm(modelDir, { recursive: true, force: true });
-    
-    console.log(`Model directory deleted successfully: ${modelDir}`);
-
-    auditLogger.info('model.delete', { requestId: req.requestId, user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null, modelName, forceDelete });
-    res.json({
-      success: true,
-      message: `Model ${modelName} deleted successfully`
+    const response = await axios.delete(`${AI_BACKEND_URL}/api/models/${modelName}`, {
+      params: { force: req.query.force }  // Pass force query param
     });
-
+    
+    auditLogger.info('model.delete', { 
+      requestId: req.requestId, 
+      user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null, 
+      modelName, 
+      forceDelete: req.query.force === 'true' 
+    });
+    
+    res.json(response.data);
   } catch (error) {
     console.error('Error deleting model:', error);
     auditLogger.error('model.delete.error', { requestId: req.requestId, modelName: req.params.modelName, message: error?.message });
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
       message: 'Failed to delete model',
-      error: error.message
+      error: error.response?.data?.message || error.message
     });
   }
 };
 
-const getModelPlot = (req, res) => {
-  try{
+const getModelPlot = async (req, res) => {
+  try {
     const { modelName } = req.params;
-    const modelDir = path.join(MODELS_DIR, modelName);
-    const plotPath = path.join(modelDir, 'training_plot.png');
-
-    console.log(`Looking for plot at: ${plotPath}`);
-
-    if(fsSync.existsSync(plotPath)){
-      res.setHeader('Content-Type', 'image/png');
-      res.setHeader('Cache-Control', 'public, max-age=3600'); 
-      res.sendFile(plotPath);
-    } else {
-      console.log('Plot file not found:', plotPath);
-      res.status(404).json({ 
-        error: 'Training plot not found for this model',
-        message: 'The training plot diagram does not exist for this model.'
-      });
-    }
+    const response = await axios.get(`${AI_BACKEND_URL}/api/models/${modelName}/plot`, {
+      responseType: 'arraybuffer'  // Important for binary image data
+    });
+    
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=3600'); 
+    res.send(response.data);
   } catch (error) {
     console.error('Error serving model plot:', error);
-    res.status(500).json({ 
+    res.status(error.response?.status || 500).json({ 
       error: 'Failed to load training plot',
-      message: error.message 
+      message: error.response?.data?.message || error.message 
     });
   }
 };
 
 const finishTraining = async (req, res) => {
   try {
-    const {
-      modelName,
-      status,
-      speciesCount,
-      totalImages,
-      trainAccuracy,
-      valAccuracy,
-      error,
-    } = req.body;
+    const { modelName, status, speciesCount, totalImages, trainAccuracy, valAccuracy, error } = req.body;
 
     console.log('Training completion notification received');
     console.log(`   Model: ${modelName}`);
@@ -352,16 +136,14 @@ const finishTraining = async (req, res) => {
     if (status === 'failed') {
       console.error(`   Error: ${error}`);
       auditLogger.error('training.finish', { requestId: req.requestId, status, modelName, error });
-      return res.json({
-        success: true,
-        message: 'Training failure recorded',
-      });
+      return res.json({ success: true, message: 'Training failure recorded' });
     }
 
     console.log(`   Train Accuracy: ${trainAccuracy}%`);
     console.log(`   Val Accuracy: ${valAccuracy}%`);
     auditLogger.info('training.finish', { requestId: req.requestId, status, modelName, speciesCount, totalImages, trainAccuracy, valAccuracy });
-
+    
+    res.json({ success: true, message: 'Training completion recorded' });
   } catch (error) {
     console.error('Failed to process training completion:', error);
     auditLogger.error('training.finish.error', { requestId: req.requestId, message: error?.message });
@@ -372,58 +154,25 @@ const finishTraining = async (req, res) => {
     });
   }
 };
-
 const activateModel = async (req, res) => {
   try {
     const { modelName } = req.params;
+    const response = await axios.patch(`${AI_BACKEND_URL}/api/models/${modelName}/activate`);
     
-    console.log(`Activate request for model: ${modelName}`);
-    
-    const modelDir = path.join(MODELS_DIR, modelName);
-    
-    // Check if model directory exists
-    try {
-      await fs.access(modelDir);
-      console.log(`Model directory found: ${modelDir}`);
-    } catch (error) {
-      console.log(`Model directory not found: ${modelDir}`);
-      return res.status(404).json({
-        success: false,
-        message: `Model "${modelName}" not found`
-      });
-    }
-
-    // Check if model has required files
-    const dirFiles = await fs.readdir(modelDir);
-    const hasBestModel = dirFiles.includes('best_model.pth');
-    const hasLabelMap = dirFiles.includes('label_map.json');
-    
-    if (!hasBestModel || !hasLabelMap) {
-      return res.status(400).json({
-        success: false,
-        message: 'Model is incomplete. Missing required files (best_model.pth or label_map.json)'
-      });
-    }
-
-    // Write the model name to active_model.txt
-    await fs.writeFile(ACTIVE_MODEL_PATH, modelName, 'utf-8');
-    
-    console.log(`Model ${modelName} activated successfully`);
-
-    auditLogger.info('model.activate', { requestId: req.requestId, user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null, modelName });
-    res.json({
-      success: true,
-      message: `Model ${modelName} is now active`,
-      activeModel: modelName
+    auditLogger.info('model.activate', { 
+      requestId: req.requestId, 
+      user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null, 
+      modelName 
     });
-
+    
+    res.json(response.data);
   } catch (error) {
     console.error('Error activating model:', error);
     auditLogger.error('model.activate.error', { requestId: req.requestId, modelName: req.params.modelName, message: error?.message });
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
       message: 'Failed to activate model',
-      error: error.message
+      error: error.response?.data?.message || error.message
     });
   }
 };
