@@ -28,6 +28,7 @@ const AdminScreen = () => {
   const [activeSection, setActiveSection] = useState('plants');
   const [loading, setLoading] = useState(false);
   const [userRole, setUserRole] = useState('');
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   // Shared state that might be needed across sections
   const [plantCache, setPlantCache] = useState({});
@@ -50,6 +51,8 @@ const AdminScreen = () => {
         if (res.ok) {
           const data = await res.json();
           setUserRole(data?.user?.role || '');
+          // Capture current logged-in user's id for verified_by updates
+          setCurrentUserId(data?.user?.user_id ?? data?.user?.id ?? null);
         }
       } catch (error) {
         console.error('Error fetching user role:', error);
@@ -81,6 +84,7 @@ const AdminScreen = () => {
       API_URL,
       plantCache,
       setPlantCache,
+      currentUserId,
     };
 
     switch (activeSection) {

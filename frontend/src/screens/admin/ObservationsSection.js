@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
 import styles from './SectionStyles';
 
-const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => {
+const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache, currentUserId }) => {
   const [observations, setObservations] = useState([]);
   const [obsLoading, setObsLoading] = useState(false);
   const [obsError, setObsError] = useState(null);
@@ -909,6 +909,8 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache 
                         latitude: Number(obsDetail.latitude),
                         longitude: Number(obsDetail.longitude),
                       } : {}),
+                      // Automatically capture verifier when status is set to verified
+                      ...(obsDetail.status === 'verified' && currentUserId != null ? { verifiedBy: Number(currentUserId) } : {}),
                     };
 
                     const res = await fetch(`${API_URL}/observations/${obsDetail.observation_id}`, {

@@ -237,6 +237,12 @@ class Observation {
       params.push(data.imageUrl);
     }
 
+    // Support verified_by updates (when an expert/admin verifies)
+    if (data.verifiedBy !== undefined) {
+      updates.push("verified_by = ?");
+      params.push(data.verifiedBy);
+    }
+
     // Support latitude/longitude updates
     if (data.latitude !== undefined) {
       updates.push("latitude = ?");

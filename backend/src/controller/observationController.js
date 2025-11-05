@@ -348,7 +348,7 @@ class ObservationController {
         });
       }
 
-      const { plantId, confidenceScore, status, public: isPublic, latitude, longitude } = req.body;
+      const { plantId, confidenceScore, status, public: isPublic, latitude, longitude, verifiedBy } = req.body;
  
       // Check if observation exists
       const observation = await Observation.findById(id);
@@ -386,6 +386,16 @@ class ObservationController {
         imageUrl: imageUrl || undefined,
         public: publicValue,
       };
+
+      // Automatically set verifiedBy when marking as verified, if not explicitly provided
+      if (verifiedBy !== undefined) {
+        const vbNum = Number(verifiedBy);
+        if (!Number.isNaN(vbNum) && vbNum > 0) {
+          updateData.verifiedBy = vbNum;
+        }
+      } else if (status === 'verified' && req.user?.id) {
+        updateData.verifiedBy = Number(req.user.id);
+      }
 
       // Optional latitude/longitude updates if provided in PUT body
       if (latitude !== undefined) {
