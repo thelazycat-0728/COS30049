@@ -91,42 +91,6 @@ async function insertObservation({ user_id, plant_id, image_url, lat, lon, statu
   return result.insertId;
 }
 
-// Resolve plant_id using top prediction from the classifier
-async function resolvePlantIdFromImage(imageUrl) {
-  if (!imageUrl) return null;
-  const imageFullPath = path.join(__dirname, '../..', imageUrl);
-  const PYTHON_SCRIPT = path.join(__dirname, '../../ml/classify_plant.py');
-
-  const resultJson = await new Promise((resolve, reject) => {
-    const py = spawn('python', [PYTHON_SCRIPT, imageFullPath]);
-    let out = '';
-    let err = '';
-    py.stdout.on('data', (d) => { out += d.toString(); });
-    py.stderr.on('data', (d) => { err += d.toString(); });
-    py.on('close', (code) => {
-      if (code !== 0) {
-        return reject(new Error(err || 'Classification failed'));
-      }
-      resolve(out);
-    });
-    py.on('error', (e) => reject(e));
-  });
-
-  let parsed;
-  try { parsed = JSON.parse(resultJson); } catch { return null; }
-  const preds = Array.isArray(parsed?.predictions) ? parsed.predictions : [];
-  if (preds.length === 0) return null;
-  const top = preds[0];
-  const name = top?.species || top?.className || null;
-  if (!name) return null;
-
-  const [rows] = await pool.execute(
-    'SELECT plant_id FROM Plants WHERE species = ? OR common_name = ? OR scientific_name = ? LIMIT 1',
-    [name, name, name]
-  );
-  return rows && rows[0] ? rows[0].plant_id : null;
-}
-
 class IdentifyController {
   static async extractLocation(req, res) {
     try {
@@ -284,17 +248,7 @@ class IdentifyController {
       // Determine plant_id: prefer provided, else classify image to get top prediction and map to Plants table
       let actualPlantId = plant_id != null ? plant_id : null;
       let finalConfidence = confidence_score;
-      if (actualPlantId == null) {
-        try {
-          const resolvedPid = await resolvePlantIdFromImage(image_url);
-          if (resolvedPid != null) {
-            actualPlantId = resolvedPid;
-          }
-        } catch (e) {
-          console.warn('Failed to resolve plant_id via classifier:', e.message || e);
-        }
-      }
-
+      
       const observationId = await insertObservation({
         user_id: actualUserId,
         plant_id: actualPlantId,
@@ -410,6 +364,54 @@ class IdentifyController {
       });
     }
   }
+  
+  static async searchPlantByName(req, res) {
+    try {
+      const { plantName } = req.query;
+
+      if (!plantName) {
+        return res.status(400).json({
+          success: false,
+          message: 'Plant name is required',
+        });
+      }
+
+      console.log('Searching for plant:', plantName);
+
+      const [rows] = await pool.execute(
+        `SELECT plant_id, scientific_name
+        FROM Plants
+        WHERE scientific_name = ?
+        LIMIT 1`,
+        [plantName]
+      );
+
+      if (rows.length > 0) {
+        console.log('match found:', rows[0]);
+        return res.json({
+          success: true,
+          found: true,
+          plant: rows[0],
+        });
+      }
+
+      console.log('No match found for:', plantName);
+      return res.json({
+        success: true,
+        found: false,
+        message: 'Plant not found in database',
+      });
+
+    } catch (error) {
+      console.error('Error searching plant:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to search plant',
+        error: error.message,
+      });
+    }
+  }
+  
 }
 
 module.exports = IdentifyController;
