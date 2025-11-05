@@ -471,6 +471,17 @@ const MapScreen = () => {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       <View style={styles.header}>
+        <View style={styles.titleSection}>
+          <Text style={styles.appTitle}>Plant Map</Text>
+          <TouchableOpacity style={styles.filterButton} onPress={() => setFilterVisible(true)}>
+            <Ionicons name="options-outline" size={18} color="#2e7d32" />
+            <Text style={styles.filterText}>Filter</Text>
+            <View style={styles.filterResultsBadge}>
+              <Ionicons name="leaf-outline" size={14} style={styles.filterResultsIcon} />
+              <Text style={styles.filterResultsText}>{resultsCount} results</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
         <View style={styles.searchContainer}>
           <TextInput
             style={styles.searchInput}
@@ -500,18 +511,6 @@ const MapScreen = () => {
             </TouchableOpacity>
           )}
         </View>
-      </View>
-
-      <View style={styles.titleSection}>
-        <Text style={styles.appTitle}>Plant Map</Text>
-        <TouchableOpacity style={styles.filterButton} onPress={() => setFilterVisible(true)}>
-          <Ionicons name="options-outline" size={18} color="#2e7d32" />
-          <Text style={styles.filterText}>Filter</Text>
-          <View style={styles.filterResultsBadge}>
-            <Ionicons name="leaf-outline" size={14} style={styles.filterResultsIcon} />
-            <Text style={styles.filterResultsText}>{resultsCount} results</Text>
-          </View>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.mapContainer} onLayout={(e) => setMapLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
@@ -938,6 +937,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 15,
+    marginTop: 20,
   },
   appTitle: {
     fontSize: 28,
