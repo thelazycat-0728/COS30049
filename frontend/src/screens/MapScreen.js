@@ -13,6 +13,7 @@ import {
   AccessibilityInfo,
   Platform,
   Pressable,
+  RefreshControl,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import MapView, { Marker, Heatmap } from 'react-native-maps';
@@ -63,6 +64,7 @@ const MapScreen = () => {
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [hasAutoFitted, setHasAutoFitted] = useState(false);
   const [pendingSelection, setPendingSelection] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const withTimeout = (promise, ms) =>
     new Promise((resolve, reject) => {
@@ -280,6 +282,22 @@ const MapScreen = () => {
     );
   };
 
+  // Pull-to-refresh handler: reload markers, family options, and heatmap if active
+  const onRefresh = async () => {
+    try {
+      setRefreshing(true);
+      await fetchLocations();
+      await fetchFamilyOptions();
+      if (showHeatmap) {
+        await fetchHeatmapDensity();
+      }
+    } catch (err) {
+      console.warn('Refresh error:', err?.message || err);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
   const computeCardPosition = (pt, dims, layout) => {
     const pad = 12;
@@ -469,6 +487,17 @@ const MapScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        refreshControl={(
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#2e7d32"
+            colors={["#2e7d32"]}
+          />
+        )}
+      >
 
       <View style={styles.header}>
         <View style={styles.titleSection}>
@@ -882,7 +911,8 @@ const MapScreen = () => {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+      </ScrollView>
+  </SafeAreaView>
   );
 };
 
