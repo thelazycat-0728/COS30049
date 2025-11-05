@@ -441,10 +441,28 @@ const UploadScreen = () => {
         Alert.alert('Login Required', 'Please sign in to submit observations.');
         return;
       }
+
+      if (!plantName) {
+        Alert.alert('Missing plant name', 'Please classify an image to identify the plant.');
+        return;
+      }
       
       setSaving(true);
       const lat = extractedCoords?.lat ?? null;
       const lon = extractedCoords?.lon ?? null;
+
+      const searchUrl = `${API_BASE}/identify/search-plant?plantName=${encodeURIComponent(plantName)}`;
+      const searchRes = await fetch(searchUrl);
+      const searchData = await searchRes.json();
+
+      if (!searchData.success || !searchData.found) {
+        Alert.alert('Plant not found', `No record found for "${plantName}".`);
+        setSaving(false);
+        return;
+      }
+      const plant_id = searchData.plant.plant_id;
+      console.log('Found plant_id:', plant_id);
+
       
       const res = await fetch(`${API_BASE}/identify/submit-observation`, {
         method: 'POST',
@@ -457,6 +475,7 @@ const UploadScreen = () => {
           image_url: backendImageUrl, 
           lat, 
           lon, 
+          plant_id,
           confidence_score: confidenceScore,
           is_unsure: isUnsure
         }),
