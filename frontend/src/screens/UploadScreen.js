@@ -15,26 +15,21 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
 import MapView, { Marker } from 'react-native-maps';
-import { useNavigation } from "@react-navigation/native";
 import * as Location from 'expo-location';
 //import PlantClassifierService from "../services/PlantClassifierService";     (unused for now)
 
 import NetInfo from "@react-native-community/netinfo";
 
 const UploadScreen = () => {
-  const navigation = useNavigation();
   const [image, setImage] = useState(null);
   const [plantName, setPlantName] = useState("");
   const [scientificName, setScientificName] = useState("");
   const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
   const [isClassifying, setIsClassifying] = useState(false);
   const [predictions, setPredictions] = useState([]);
   const [confidenceScore, setConfidenceScore] = useState(0);
   const [isOffline, setIsOffline] = useState(false);
-  // New states for secure backend processing and map
   const [uploading, setUploading] = useState(false);
   const [extractedCoords, setExtractedCoords] = useState(null); // { lat, lon }
   const [mapRegion, setMapRegion] = useState(null);
@@ -43,26 +38,18 @@ const UploadScreen = () => {
   const [saving, setSaving] = useState(false);
   const [imageSourceType, setImageSourceType] = useState(null); // 'camera' or 'file'
   const [tempImageData, setTempImageData] = useState(null); // Store image data before upload
-  // Manual location selection when EXIF GPS is missing
   const [needsLocation, setNeedsLocation] = useState(false);
   const [manualPin, setManualPin] = useState(null); // { lat, lon }
   const manualPinRef = useRef(null); // live manual pin to avoid stale state reads
   const [searchQuery, setSearchQuery] = useState('');
   const [searchingLocation, setSearchingLocation] = useState(false);
-  // Track whether location was auto-detected from image or manually selected
   const [locationSource, setLocationSource] = useState(null); // 'auto' | 'manual' | null
-  // UI feedback state for Change Location button active press
   const [changeLocPressing, setChangeLocPressing] = useState(false);
-  // Animated opacity for smooth hide/remove of map and action buttons
   const mapOpacity = useRef(new Animated.Value(1)).current;
   const actionsOpacity = useRef(new Animated.Value(1)).current;
-
-  // Multi-step navigation: AI results -> Location selection
   const [currentStep, setCurrentStep] = useState('ai'); // 'ai' | 'location'
   const scrollRef = useRef(null);
   const [locationSectionY, setLocationSectionY] = useState(0);
-
-  // Flag as unsure
   const [isUnsure, setIsUnsure] = useState(false);
   
   const handleNext = () => {
@@ -228,19 +215,10 @@ const UploadScreen = () => {
       const reachable = await ensureServerReachable();
       if (!reachable) return null;
 
-      let base64 = imageData?.base64 || null;
-      if (!base64 && imageData?.uri) {
-        try {
-          base64 = await FileSystem.readAsStringAsync(imageData.uri, { encoding: 'base64' });
-        } catch (e1) {
-          // Simple retry after a short delay to handle file write races
-          await new Promise((r) => setTimeout(r, 200));
-          base64 = await FileSystem.readAsStringAsync(imageData.uri, { encoding: 'base64' });
-        }
-      }
+      const base64 = imageData?.base64 || null;
 
       if (!base64) {
-        Alert.alert('Upload error', 'Unable to read image data. Please try again.');
+        Alert.alert('Upload error', 'Unable to read image data. Please retake the photo.');
         return null;
       }
 
@@ -729,11 +707,22 @@ const UploadScreen = () => {
         <View style={[styles.stepContainer, currentStep === 'ai' ? styles.stepVisible : styles.stepHidden]}>
         {image && !isClassifying && !backendImageUrl && (
           <TouchableOpacity 
-            style={[styles.button, styles.classifyButton, (isOffline || saving) && styles.classifyButtonDisabled]} 
+            style={[
+              styles.button, 
+              styles.classifyButton, 
+              (isOffline || saving || uploading) && styles.classifyButtonDisabled
+            ]} 
             onPress={classifyPlantViaBackend}
-            disabled={isOffline || saving}
+            disabled={isOffline || saving || uploading}
           >
-            <Text style={[styles.buttonText, (isOffline || saving) && styles.classifyButtonTextDisabled]}>Classify Plant</Text>
+            {uploading ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
+                <Text style={styles.buttonText}>Uploading...</Text>
+              </View>
+            ) : (
+              <Text style={[styles.buttonText, (isOffline || saving) && styles.classifyButtonTextDisabled]}>Classify Plant</Text>
+            )}
           </TouchableOpacity>
         )}
 
