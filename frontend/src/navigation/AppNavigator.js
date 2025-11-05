@@ -58,6 +58,25 @@ function MapStack() {
   );
 }
 
+function UploadStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="UploadMain" component={UploadScreen} />
+      <Stack.Screen
+        name="PlantDetail"
+        component={PlantDetailScreen}
+        options={{
+          headerShown: true,
+          headerTitle: 'Plant Details',
+          headerStyle: { backgroundColor: '#2e7d32' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: 'bold' },
+        }}
+      />
+    </Stack.Navigator>
+  );
+}
+
 function MainApp() {
   const [hasAdminAccess, setHasAdminAccess] = useState(false);
   const [userRole, setUserRole] = useState('');
@@ -116,7 +135,7 @@ function MainApp() {
     >
       <Tab.Screen name="Home" component={HomeStack} />
       <Tab.Screen name="Map" component={MapStack} />
-      <Tab.Screen name="Upload" component={UploadScreen} />
+     <Tab.Screen name="Upload" component={UploadStack} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
       {hasAdminAccess && (
         <Tab.Screen 
