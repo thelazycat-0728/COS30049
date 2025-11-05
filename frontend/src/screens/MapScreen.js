@@ -307,11 +307,14 @@ const MapScreen = () => {
 
   const handleLocationPress = (loc) => {
     const mapped = {
-      image: loc.image_url || null,
-      name: loc.plant?.common_name || 'Unknown',
-      scientificName: loc.plant?.scientific_name || '',
-      plantId: loc.plant_id,
-      observationId: loc.observation_id,
+      // Align keys with HomeScreen and PlantDetail expectations
+      image_url: loc.plant?.image_url || loc.image_url || null,
+      common_name: loc.plant?.common_name || 'Unknown',
+      scientific_name: loc.plant?.scientific_name || '',
+      family: loc.plant?.family || '',
+      description: loc.plant?.description || '',
+      plant_id: loc.plant_id,
+      observation_id: loc.observation_id,
       coordinates: loc.coordinates,
     };
 
@@ -339,7 +342,8 @@ const MapScreen = () => {
 
   const handleViewDetails = () => {
     closePlantCard();
-    navigation.navigate('PlantDetailScreen', { plant: selectedPlant });
+    // Use same route name and param structure as HomeScreen
+    navigation.navigate('PlantDetail', { plant: selectedPlant });
   };
 
   const toggleStatus = (status) => {
@@ -606,16 +610,16 @@ const MapScreen = () => {
               {selectedPlant && (
                 <>
                   <View style={styles.cardHeader}>
-                    {selectedPlant.image ? (
-                      <Image source={{ uri: selectedPlant.image }} style={styles.cardImage} />
+                    {(selectedPlant.image_url || selectedPlant.image) ? (
+                      <Image source={{ uri: selectedPlant.image_url || selectedPlant.image }} style={styles.cardImage} />
                     ) : (
                       <View style={styles.cardImagePlaceholder}>
                         <Ionicons name="leaf" size={24} color="#2e7d32" />
                       </View>
                     )}
                     <View style={styles.cardText}>
-                      <Text style={styles.plantCardName} numberOfLines={1}>{selectedPlant.name}</Text>
-                      <Text style={styles.plantCardScientific} numberOfLines={2}>{selectedPlant.scientificName}</Text>
+                      <Text style={styles.plantCardName} numberOfLines={1}>{selectedPlant.common_name || selectedPlant.name || 'Unknown'}</Text>
+                      <Text style={styles.plantCardScientific} numberOfLines={2}>{selectedPlant.scientific_name || selectedPlant.scientificName || ''}</Text>
                     </View>
                   </View>
                   <View style={styles.plantCardInfo}>
