@@ -44,7 +44,7 @@ function MapStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MapMain" component={MapScreen} />
       <Stack.Screen
-        name="PlantDetailScreen"
+        name="PlantDetail"
         component={PlantDetailScreen}
         options={{
           headerShown: true,

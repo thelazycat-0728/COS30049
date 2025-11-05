@@ -343,7 +343,7 @@ const MapScreen = () => {
   const handleViewDetails = () => {
     closePlantCard();
     // Use same route name and param structure as HomeScreen
-    navigation.navigate('PlantDetail', { plant: selectedPlant });
+    navigation.navigate('PlantDetail', { plant: selectedPlant, origin: 'Map' });
   };
 
   const toggleStatus = (status) => {

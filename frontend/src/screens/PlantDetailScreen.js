@@ -1,6 +1,7 @@
 // screens/PlantDetailScreen.js
-import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Text, Image, ScrollView, ActivityIndicator, TouchableOpacity, Pressable, Animated, Dimensions } from 'react-native';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { View, StyleSheet, Text, Image, ScrollView, ActivityIndicator, TouchableOpacity, Pressable, Animated, Dimensions, BackHandler } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import MapView, { Marker, Callout } from 'react-native-maps';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,6 +10,7 @@ const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const PlantDetailScreen = ({ route }) => {
+  const navigation = useNavigation();
   const { plant } = route.params || {};
   const plantId = plant?.plant_id;
 
@@ -24,6 +26,58 @@ const PlantDetailScreen = ({ route }) => {
   const [showSidePanel, setShowSidePanel] = useState(false);
   const [selectedObservation, setSelectedObservation] = useState(null);
   const slideAnim = useRef(new Animated.Value(300)).current;
+  const prevRouteNameRef = useRef(null);
+
+  const handleGoBack = useCallback(() => {
+    // Prefer normal stack back when available
+    if (navigation && navigation.canGoBack && navigation.canGoBack()) {
+      navigation.goBack();
+      return true;
+    }
+    // Try origin param if provided by the source screen
+    const origin = route?.params?.origin;
+    if (origin) {
+      navigation.navigate(origin);
+      return true;
+    }
+    // Try previous route name from nav state
+    const state = navigation?.getState?.();
+    const prev = state?.routes?.[Math.max(0, (state?.index ?? 0) - 1)]?.name;
+    if (prev) {
+      navigation.navigate(prev);
+      return true;
+    }
+    // Final fallback: go to Home tab
+    navigation.navigate('Home');
+    return true;
+  }, [navigation, route?.params]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Cache previous route name for potential fallback
+      try {
+        const state = navigation?.getState?.();
+        prevRouteNameRef.current = state?.routes?.[Math.max(0, (state?.index ?? 0) - 1)]?.name || null;
+      } catch (e) {
+        prevRouteNameRef.current = null;
+      }
+      const sub = BackHandler.addEventListener('hardwareBackPress', handleGoBack);
+      return () => sub.remove();
+    }, [handleGoBack])
+  );
+
+  useEffect(() => {
+    // Ensure header back uses the same logic across iOS/Android/web
+    if (navigation?.setOptions) {
+      navigation.setOptions({
+        headerLeft: () => (
+          <TouchableOpacity onPress={handleGoBack} style={{ paddingHorizontal: 10 }}>
+            <Ionicons name="chevron-back" size={24} color="#fff" />
+          </TouchableOpacity>
+        ),
+      });
+    }
+  }, [navigation, handleGoBack]);
 
   // Display state
   const [display, setDisplay] = useState({

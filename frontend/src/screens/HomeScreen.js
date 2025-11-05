@@ -130,7 +130,7 @@ const HomeScreen = () => {
 
   const goToPlantPage = (plant) => {
     console.log('Navigating to PlantDetail with plant:', plant);
-    navigation.navigate('PlantDetail', { plant });
+    navigation.navigate('PlantDetail', { plant, origin: 'Home' });
   };
 
   const renderPlantCard = ({ item, index }) => (
