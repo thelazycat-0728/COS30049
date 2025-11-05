@@ -43,6 +43,12 @@ identifyRouter.post(
   IdentifyController.deleteImage
 );
 
+// Search plant id by scientific name
+identifyRouter.get(
+  '/search-plant',
+  IdentifyController.searchPlantByName
+)
+
 // Placeholder routes kept for compatibility/demo
 identifyRouter.post('/', (req, res) => {
   res.send('Identify route');
