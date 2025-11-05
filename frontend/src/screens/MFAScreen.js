@@ -222,6 +222,8 @@ const MFAScreen = ({ route, navigation }) => {
                 navigation.goBack();
               });
             }
+
+            navigation.goBack();
           },
         },
       ]
