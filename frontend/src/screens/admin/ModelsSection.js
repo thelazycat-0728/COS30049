@@ -293,16 +293,22 @@ const ModelsSection = ({ API_URL, getAuthToken, currentUserId }) => {
   };
 
   const viewModelPlot = async (modelName) => {
-    const token = await getAuthToken();
-    const plotUrl = await fetch(`${API_URL}/admin/models/${modelName}/plot`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-    });
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${API_URL}/admin/models/${modelName}/plot`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const arrayBuffer = await response.arrayBuffer();
+      const base64String = btoa(
+        String.fromCharCode(...new Uint8Array(arrayBuffer))
+      );
+      const dataUrl = `data:image/png;base64,${base64String}`;
 
-    setSelectedModelPlot(plotUrl);
-    setPlotModalVisible(true);
+      setSelectedModelPlot(dataUrl);
+      setPlotModalVisible(true);
+    } catch (error) {
+      console.error('Error loading plot:', error);
+    }
   };
 
   const handleSearch = (text) => {
