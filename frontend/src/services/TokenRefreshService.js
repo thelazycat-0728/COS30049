@@ -17,8 +17,7 @@ class TokenRefreshService {
 
     console.log('Starting automatic token refresh (every 15 minutes)');
 
-    // Refresh immediately on start
-    this.refreshToken();
+    
 
     // Set interval for 15 minutes (900000 ms)
     this.refreshInterval = setInterval(() => {
@@ -52,6 +51,7 @@ class TokenRefreshService {
 
       // Get refresh token from AsyncStorage
       const refreshToken = await AsyncStorage.getItem('refreshToken');
+      const accessToken = await AsyncStorage.getItem('authToken');
 
       if (!refreshToken) {
         console.log('⚠️ No refresh token found, skipping refresh');
@@ -65,6 +65,7 @@ class TokenRefreshService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
         },
         body: JSON.stringify({ refreshToken }),
       });

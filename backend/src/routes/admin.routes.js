@@ -13,6 +13,7 @@ const adminRouter = express.Router();
 adminRouter.get('/users', auth.requireAdmin, userController.getAllUsers);
 
 adminRouter.put('/users/:id/role', auth.requireAdmin, userController.updateUserRole);
+adminRouter.delete('/users/:id', auth.requireAdmin, userController.deleteUser);
 
 adminRouter.get('/statistics', (req, res) => {
   res.send('Admin route for statistics');

@@ -430,6 +430,8 @@ class AuthController {
    */
   static async refresh(req, res) {
     try {
+
+      console.log("Refresh token request received: ", req.body.refreshToken);
       // Get refresh token from body or cookie
       let refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
 

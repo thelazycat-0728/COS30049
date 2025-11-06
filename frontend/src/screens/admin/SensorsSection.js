@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Line, Circle, Path, Text as SvgText } from 'react-native-svg';
 import styles from './SectionStyles';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => {
   const [sensors, setSensors] = useState([]);
@@ -37,6 +38,16 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
   const [sortOrder, setSortOrder] = useState('DESC');
 
   const totalSensorsPages = useMemo(() => Math.max(1, Math.ceil(sensorsTotal / SENSORS_PAGE_SIZE)), [sensorsTotal]);
+
+  const retrieveAccessToken = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      return token;
+    } catch (err) {
+      console.error('Error retrieving access token:', err);
+      return null;
+    }
+  };
 
   const STATUS_OPTIONS = [
     { key: '', label: 'All Status' },
@@ -156,7 +167,8 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
       if (!ids.length) return;
       const results = await Promise.all(ids.map(async (id) => {
         try {
-          const r = await fetch(`${API_URL}/map/plants/${id}`);
+          const accessToken = await retrieveAccessToken();
+          const r = await fetch(`${API_URL}/map/plants/${id}`, {method: 'GET', headers: { Authorization: `Bearer ${accessToken}` }});
           if (!r.ok) throw new Error(`Plant ${id} fetch failed`);
           const plant = await r.json();
           return { id, plant };

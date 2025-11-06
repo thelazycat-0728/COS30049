@@ -15,6 +15,7 @@ import {
   RefreshControl,
   Animated
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -88,7 +89,15 @@ const HomeScreen = () => {
         ...(searchText && { search: searchText })
       });
       
-      const plantsResponse = await fetch(`${API_BASE}/admin/plants?${params.toString()}`);
+      const accessToken = await AsyncStorage.getItem('authToken');
+
+      const plantsResponse = await fetch(`${API_BASE}/plants?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
       
       if (!plantsResponse.ok) {
         throw new Error(`HTTP error! status: ${plantsResponse.status}`);

@@ -13,6 +13,7 @@ const authRouter = require('./routes/auth.routes');
 const adminRouter = require('./routes/admin.routes');
 const userRouter = require('./routes/user.routes'); 
 const profileRouter = require('./routes/profile.routes');
+const plantRouter = require('./routes/plant.routes');
 
 
 
@@ -36,6 +37,7 @@ app.use('/admin', adminRouter);
 app.use('/user', userRouter);
 app.use('/profile', profileRouter);
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+app.use('/plants', plantRouter);
 
 
 

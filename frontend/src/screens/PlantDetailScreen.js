@@ -5,6 +5,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import MapView, { Marker, Callout } from 'react-native-maps';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -188,7 +189,14 @@ const PlantDetailScreen = ({ route }) => {
         // Fetch plant details
         let pd = null;
         if (plantId) {
-          const res = await fetch(`${API_BASE}/admin/plants/${plantId}`);
+          const accessToken = await AsyncStorage.getItem('authToken');
+          const res = await fetch(`${API_BASE}/plants/${plantId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          });
           if (res.ok) {
             pd = await res.json();
           } else {

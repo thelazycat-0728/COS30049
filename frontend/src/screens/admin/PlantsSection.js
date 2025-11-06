@@ -69,7 +69,7 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
         sortOrder
       });
       
-      const res = await fetch(`${API_URL}/admin/plants?${params.toString()}`, {
+      const res = await fetch(`${API_URL}/plants?${params.toString()}`, {
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),

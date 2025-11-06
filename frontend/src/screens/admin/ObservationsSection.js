@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
 import styles from './SectionStyles';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache, currentUserId }) => {
   const [observations, setObservations] = useState([]);
@@ -46,6 +47,16 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache,
   const [plantSearchQuery, setPlantSearchQuery] = useState('');
 
   const totalObsPages = useMemo(() => Math.max(1, Math.ceil(obsTotal / OBS_PAGE_SIZE)), [obsTotal]);
+
+  const retrieveAccessToken = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      return token;
+    } catch (err) {
+      console.error('Error retrieving access token:', err);
+      return null;
+    }
+  };
 
   const statusOptions = [
     { key: '', label: 'All Status' },
@@ -165,7 +176,8 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache,
       if (!ids.length) return;
       const results = await Promise.all(ids.map(async (id) => {
         try {
-          const r = await fetch(`${API_URL}/map/plants/${id}`);
+          const accessToken = await retrieveAccessToken();
+          const r = await fetch(`${API_URL}/map/plants/${id}`, {method: 'GET', headers: { Authorization: `Bearer ${accessToken}` }});
           if (!r.ok) throw new Error(`Plant ${id} fetch failed`);
           const plant = await r.json();
           return { id, plant };
