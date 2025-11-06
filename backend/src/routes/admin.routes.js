@@ -29,15 +29,15 @@ adminRouter.get('/train/status', auth.requireAdmin, trainingController.getTraini
 adminRouter.post('/train/stop', auth.requireAdmin, trainingController.stopTraining);
 adminRouter.get('/models', auth.requireAdmin, trainingController.getModels);
 adminRouter.delete('/models/:modelName', auth.requireAdmin, trainingController.deleteModel);
-adminRouter.get('/models/:modelName/plot', auth.requireAdmin, trainingController.getModelPlot);
+adminRouter.get('/models/:modelName/plot', trainingController.getModelPlot);
 adminRouter.patch('/models/:modelName/activate', auth.requireAdmin, trainingController.activateModel);
-adminRouter.post('/train/finish', auth.requireAdmin, trainingController.finishTraining);
+adminRouter.post('/train/finish', trainingController.finishTraining);
 
 adminRouter.post('/cleanup-tokens', auth.requireAdmin, authController.cleanupExpiredTokens);
 
 // Plants management (admin/expert)
-adminRouter.get('/plants', auth.requireExpert, plantController.getAll);
-adminRouter.get('/plants/:plant_id', auth.requireExpert, plantController.getById);
+adminRouter.get('/plants', plantController.getAll);
+adminRouter.get('/plants/:plant_id', plantController.getById);
 adminRouter.post('/plants', auth.requireExpert, upload.single('image'), plantController.create);
 adminRouter.put('/plants/:plant_id', auth.requireExpert, upload.single('image'), plantController.update);
 adminRouter.delete('/plants/:plant_id', auth.requireExpert, plantController.delete);

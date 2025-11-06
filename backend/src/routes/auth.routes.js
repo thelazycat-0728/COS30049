@@ -17,7 +17,7 @@ authRouter.post("/logout", auth.requireAuth, authController.logout);
 
 authRouter.post("/logout-all", auth.requireAuth, authController.logoutAll);
 
-authRouter.post("/refresh-token", auth.requireAuth, authController.refresh);
+authRouter.post("/refresh-token", authController.refresh);
 
 authRouter.post("/request-mfa", authController.requestMFA);
 
