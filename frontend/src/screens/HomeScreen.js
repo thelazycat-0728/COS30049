@@ -253,7 +253,7 @@ const HomeScreen = () => {
       
       {/* Header with Gradient */}
       <LinearGradient
-        colors={['#1a3c27', '#2d5a3d']}
+        colors={['#4CAF50', '#4CAF50']}
         style={styles.header}
       >
         <View style={styles.headerContent}>
