@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import styles from './SectionStyles';
 
-const ModelsSection = ({ API_URL, getAuthToken }) => {
+const ModelsSection = ({ API_URL, getAuthToken, currentUserId }) => {
   const [models, setModels] = useState([]);
   const [modelsPage, setModelsPage] = useState(1);
   const MODELS_PAGE_SIZE = 10;
@@ -58,6 +58,10 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
       setModelsPage(totalModelsPages);
     }
   }, [modelsPage, totalModelsPages]);
+
+  useEffect(() => {
+    checkTrainingStatus(); // Check once immediately
+  }, []);
 
   useEffect(() => {
     loadModels();
@@ -135,6 +139,7 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
     }
   };
 
+
   const checkTrainingStatus = async () => {
     try {
       const token = await getAuthToken();
@@ -147,6 +152,7 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
         if (response.ok) {
           const data = await response.json();
           setTrainingStatus(data.status);
+          
           
           if (!data.status.isTraining && trainingStatus?.isTraining) {
             loadModels();
@@ -161,7 +167,7 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
     try {
       setLoading(true);
       const token = await getAuthToken();
-        
+      
       const response = await fetch(`${API_URL}/admin/train`, {
         method: 'POST',
         headers: {
@@ -172,7 +178,8 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
           epochs: parseInt(trainingParams.epochs),
           batchSize: parseInt(trainingParams.batchSize),
           learningRate: parseFloat(trainingParams.learningRate),
-          modelName: trainingParams.modelName || undefined
+          modelName: trainingParams.modelName || undefined,
+          userID: Number(currentUserId)
         })
       });
 
@@ -285,10 +292,23 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
     );
   };
 
-  const viewModelPlot = (modelName) => {
-    const plotUrl = `${API_URL}/admin/models/${modelName}/plot`;
-    setSelectedModelPlot(plotUrl);
-    setPlotModalVisible(true);
+  const viewModelPlot = async (modelName) => {
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${API_URL}/admin/models/${modelName}/plot`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const arrayBuffer = await response.arrayBuffer();
+      const base64String = btoa(
+        String.fromCharCode(...new Uint8Array(arrayBuffer))
+      );
+      const dataUrl = `data:image/png;base64,${base64String}`;
+
+      setSelectedModelPlot(dataUrl);
+      setPlotModalVisible(true);
+    } catch (error) {
+      console.error('Error loading plot:', error);
+    }
   };
 
   const handleSearch = (text) => {
@@ -498,6 +518,11 @@ const ModelsSection = ({ API_URL, getAuthToken }) => {
                 <Text style={styles.scientificName}>
                   Size: {(model.size / 1024 / 1024).toFixed(2)} MB
                 </Text>
+                {model.trainedBy && (
+                  <Text style={styles.scientificName}>
+                    Trained by: {model.trainedBy}
+                  </Text>
+                )}
               </View>
               <View style={[
                 styles.modelStatusBadge,

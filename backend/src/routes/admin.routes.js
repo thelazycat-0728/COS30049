@@ -32,7 +32,6 @@ adminRouter.get('/models', auth.requireAdmin, trainingController.getModels);
 adminRouter.delete('/models/:modelName', auth.requireAdmin, trainingController.deleteModel);
 adminRouter.get('/models/:modelName/plot', trainingController.getModelPlot);
 adminRouter.patch('/models/:modelName/activate', auth.requireAdmin, trainingController.activateModel);
-adminRouter.post('/train/finish', trainingController.finishTraining);
 
 adminRouter.post('/cleanup-tokens', auth.requireAdmin, authController.cleanupExpiredTokens);
 

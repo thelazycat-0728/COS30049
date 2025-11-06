@@ -1,14 +1,12 @@
 const auditLogger = require('../logger/auditLogger');
 const axios = require('axios');
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL;
-const MAIN_BACKEND_URL = process.env.MAIN_BACKEND_URL
 
 // Start model training
 const startTraining = async (req, res) => {
   try {
     const trainingParams = {
       ...req.body,
-      callbackUrl: MAIN_BACKEND_URL
     };
 
     const response = await axios.post(`${AI_BACKEND_URL}/api/train`, trainingParams);
@@ -125,35 +123,6 @@ const getModelPlot = async (req, res) => {
   }
 };
 
-const finishTraining = async (req, res) => {
-  try {
-    const { modelName, status, speciesCount, totalImages, trainAccuracy, valAccuracy, error } = req.body;
-
-    console.log('Training completion notification received');
-    console.log(`   Model: ${modelName}`);
-    console.log(`   Status: ${status}`);
-
-    if (status === 'failed') {
-      console.error(`   Error: ${error}`);
-      auditLogger.error('training.finish', { requestId: req.requestId, status, modelName, error });
-      return res.json({ success: true, message: 'Training failure recorded' });
-    }
-
-    console.log(`   Train Accuracy: ${trainAccuracy}%`);
-    console.log(`   Val Accuracy: ${valAccuracy}%`);
-    auditLogger.info('training.finish', { requestId: req.requestId, status, modelName, speciesCount, totalImages, trainAccuracy, valAccuracy });
-    
-    res.json({ success: true, message: 'Training completion recorded' });
-  } catch (error) {
-    console.error('Failed to process training completion:', error);
-    auditLogger.error('training.finish.error', { requestId: req.requestId, message: error?.message });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to process training completion',
-      message: error.message,
-    });
-  }
-};
 const activateModel = async (req, res) => {
   try {
     const { modelName } = req.params;
@@ -184,7 +153,5 @@ module.exports = {
   getModels,
   deleteModel,
   getModelPlot,
-  finishTraining,
   activateModel
-
 };
