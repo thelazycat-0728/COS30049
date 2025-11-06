@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const cors = require('cors');
 require('dotenv').config();
+const mysql = require('mysql2/promise');
 
 const multer = require('multer');
 const os = require('os');
@@ -20,7 +21,13 @@ const MODELS_DIR = path.join(__dirname, './ml/models');
 const ACTIVE_MODEL_PATH = path.join(__dirname, './ml/active_model.txt');
 const DATASET_DIR = path.join(__dirname, './New_Dataset'); 
 const PYTHON_SCRIPT = path.join(__dirname, 'train.py');
-const MAIN_BACKEND_URL = process.env.MAIN_BACKEND_URL;
+
+const db = mysql.createPool({
+  host: 'srv1758.hstgr.io',
+  user: 'u149795069_user',
+  password: 'Smartestplant123',
+  database: 'u149795069_smartplant'
+});
 
 //Training state
 let trainingProcess = null;
@@ -80,7 +87,7 @@ app.post('/api/train', async (req, res) => {
       batchSize = 32,
       learningRate = 0.00001,
       modelName = `model_${Date.now()}`,
-      callbackUrl
+      userID = 'manual'
     } = req.body;
     
     // Sanitize model name: trim spaces and remove invalid characters
@@ -127,7 +134,8 @@ app.post('/api/train', async (req, res) => {
       '--batch-size', batchSize.toString(),
       '--learning-rate', learningRate.toString(),
       '--model-name', actualModelName,
-      '--output-dir', MODELS_DIR
+      '--output-dir', MODELS_DIR,
+      '--triggered-by', userID.toString()
     ]);
 
     //Capture stdout
@@ -149,9 +157,6 @@ app.post('/api/train', async (req, res) => {
             
             console.log('STORED actualModelName:', trainingProcess.actualModelName);
             
-            if (callbackUrl) {
-              await notifyMainBackend(callbackUrl, actualModelName, "folder_created");
-            }
             return;
           }
         } catch (err) {
@@ -184,9 +189,6 @@ app.post('/api/train', async (req, res) => {
         trainingStatus.error = `Training failed with exit code ${code}`;
         console.error('Training failed');
         
-        if (callbackUrl) {
-          await notifyMainBackend(callbackUrl, actualModelName, 'failed', trainingStatus.error);
-        }
 
         if (actualModelName){
           const modelDir = path.join(MODELS_DIR, actualModelName);
@@ -330,6 +332,19 @@ app.get('/api/models', async (req, res) => {
     
     console.log(`Found ${modelDirs.length} model directories`);
     
+    const [rows] = await db.query(`
+      SELECT th.model_version, u.username AS username
+      FROM training_history th
+      LEFT JOIN Users u ON th.triggered_by = u.user_id
+      WHERE status = 'completed'
+      GROUP BY th.model_version
+    `);
+    const trainedByMap = {};
+    for (const row of rows) {
+      trainedByMap[row.model_version] = row.username || 'Automated Retrain'
+    }
+
+
     // Get active model
     let activeModel = null;
     try {
@@ -368,13 +383,18 @@ app.get('/api/models', async (req, res) => {
           path: dirPath,
           hasBestModel,
           hasFinalModel,
-          hasLabelMap
+          hasLabelMap,
+          trainedBy: trainedByMap.hasOwnProperty(dir.name)
+            ? trainedByMap[dir.name] || 'Automated Retrain'
+            : 'default_model'
         };
       })
     );
 
     console.log(`Processing ${allModels.length} models before filtering`);
 
+    allModels = allModels.filter(model => model.hasBestModel);
+    console.log(`After filtering by best_model.pth presence: ${allModels.length} models`);
     // Apply search filter
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
@@ -864,32 +884,6 @@ function parseTrainingOutput(output) {
   }
 }
 
-async function notifyMainBackend(callbackUrl, modelName, status, error = null) {
-  try {
-    const payload = {
-      modelName,
-      status,
-      error,
-      speciesCount: 0,
-      totalImages: 0,
-      trainAccuracy: trainingStatus.accuracy || 0,
-      valAccuracy: trainingStatus.accuracy || 0
-    };
-
-    console.log('Notifying main backend:', payload);
-
-    await fetch(`${callbackUrl}/admin/train/finish`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    
-    console.log('Main backend notified');
-  } catch (error) {
-    console.error('Failed to notify main backend:', error.message);
-  }
-}
-
 // ============================================
 // START SERVER
 // ============================================
@@ -899,7 +893,6 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Models directory: ${MODELS_DIR}`);
   console.log(`Python script: ${PYTHON_SCRIPT}`);
-  console.log(`Main backend: ${MAIN_BACKEND_URL}`);
   console.log('');
 
 });
