@@ -812,9 +812,6 @@ const UploadScreen = () => {
                 )}
               </TouchableOpacity>
             ))}
-            <Text style={styles.predictionNote}>
-              Tap a result to use it in the form
-            </Text>
           </View>
         )}
 
@@ -1358,13 +1355,6 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     fontWeight: "bold",
     marginTop: 5,
-  },
-  predictionNote: {
-    fontSize: 12,
-    color: "#999",
-    fontStyle: "italic",
-    marginTop: 8,
-    textAlign: "center",
   },
   form: {
     padding: 20,
