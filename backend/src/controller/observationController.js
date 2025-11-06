@@ -359,7 +359,11 @@ class ObservationController {
         });
       }
 
-      // NEW: Validate plant exists if plantId is being updated
+      // Store previous status for comparison
+      const previousStatus = observation.status;
+      const currentConfidenceScore = observation.confidence_score;
+      
+      // Validate plant exists if plantId is being updated
       if (plantId) {
         const [plants] = await pool.execute('SELECT plant_id FROM Plants WHERE plant_id = ?', [plantId]);
         if (plants.length === 0) {
@@ -422,6 +426,38 @@ class ObservationController {
         }
       }
 
+      // Check if status is changing from 'unsure' to 'rejected'
+      if (previousStatus === 'unsure' && status === 'rejected' && currentConfidenceScore) {
+        // Calculate average confidence score for all rejected observations
+        const [avgResult] = await pool.execute(`
+          SELECT AVG(confidence_score) as avg_score, COUNT(*) as count
+          FROM PlantObservations 
+          WHERE status = 'rejected' 
+          AND confidence_score IS NOT NULL
+        `);
+        
+        const avgScore = avgResult[0]?.avg_score || currentConfidenceScore;
+        const rejectedCount = avgResult[0]?.count || 1;
+        
+        // Update retrain_stats table (single row)
+        await pool.execute(`
+          UPDATE retrain_stats 
+          SET retrain_accuracy = ?,
+              rejected_count = ?
+          WHERE id = 1
+        `, [avgScore, rejectedCount]);
+        
+        auditLogger.info('observation.retrain_data_added', {
+          requestId: req.requestId,
+          user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+          observation_id: Number(id),
+          confidence_score: currentConfidenceScore,
+          avg_retrain_accuracy: avgScore,
+          rejected_count: rejectedCount,
+          status_change: `${previousStatus} -> ${status}`
+        });
+      }
+      
       const success = await Observation.update(id, updateData);
 
       if (!success) {
