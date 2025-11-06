@@ -12,6 +12,9 @@ from torch.utils.data import DataLoader, random_split, Subset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import matplotlib.pyplot as plt
 
+import mysql.connector
+from mysql.connector import Error
+
 #debug
 if sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -20,6 +23,63 @@ def print_progress(message):
     """Print progress message that will be captured by Node.js"""
     print(message, flush=True)
     sys.stdout.flush()
+
+#database connection function
+def get_db_connection(config):
+    """Create database connection"""
+    try:
+        connection = mysql.connector.connect(
+            host=config.db_host,
+            user=config.db_user,
+            password=config.db_password,
+            database=config.db_name
+        )
+        return connection
+    except Error as e:
+        print_progress(f"Database connection error: {e}")
+        return None
+    
+def insert_training_record(connection, triggered_by, model_version, num_images, num_species):
+    """Insert initial training record and return training_id"""
+    cursor = connection.cursor()
+    cursor.execute("""
+        INSERT INTO training_history 
+        (triggered_by, status, model_version, num_images, num_species, started_at)
+        VALUES (%s, 'in_progress', %s, %s, %s, NOW())
+    """, (triggered_by, model_version, num_images, num_species))
+    connection.commit()
+    training_id = cursor.lastrowid
+    cursor.close()
+    return training_id
+
+def update_training_record(connection, training_id, status, training_acc=None, val_acc=None, error_msg=None):
+    """Update training record on completion or error"""
+    try:   
+        if not connection.is_connected():
+            connection.reconnect(attempts=3, delay=2) 
+
+        cursor = connection.cursor()
+        if status == 'completed':
+            cursor.execute("""
+                UPDATE training_history 
+                SET status = %s, 
+                    training_accuracy = %s, 
+                    validation_accuracy = %s,
+                    completed_at = NOW()
+                WHERE id = %s
+            """, (status, training_acc, val_acc, training_id))
+        else:  # failed
+            cursor.execute("""
+                UPDATE training_history  
+                SET status = %s, 
+                    error_message = %s,
+                    completed_at = NOW()
+                WHERE id = %s
+            """, (status, error_msg, training_id))
+        connection.commit()
+        cursor.close()   
+    except Error as e:
+        print_progress(f"Failed to update training record: {e}")
 
 
 #---------------- Config ----------------
@@ -39,7 +99,12 @@ class Config:
         self.FINE_TUNE_AT = 15
         self.PATIENCE = 5
         self.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+        #Database config
+        self.db_host = "srv1758.hstgr.io"
+        self.db_user = "u149795069_user"
+        self.db_password = "Smartestplant123"
+        self.db_name = "u149795069_smartplant"
+        self.triggered_by = args.triggered_by
 
 #---------------- Utilities ----------------
 def create_model_folder(base_dir: str, model_name: str) -> str:
@@ -169,7 +234,6 @@ def prepare_data(config: Config):
     filtered_dataset = Subset(full_dataset, valid_indices)
     
     # Update class indices in the dataset
-    # We need to remap the class indices to be consecutive starting from 0
     original_samples = [full_dataset.samples[i] for i in valid_indices]
     remapped_samples = [(path, old_to_new_class[cls_idx]) for path, cls_idx in original_samples]
     
@@ -191,7 +255,6 @@ def prepare_data(config: Config):
     ])
     
     # Create new ImageFolder with filtered data
-    # We'll create a custom dataset class to handle the remapping
     class RemappedDataset(torch.utils.data.Dataset):
         def __init__(self, samples, transform, loader):
             self.samples = samples
@@ -456,6 +519,8 @@ def main():
                         help='Model name (auto-generated if not provided)')
     parser.add_argument('--output-dir', type=str, default='./models', 
                         help='Directory to save trained models')
+    parser.add_argument('--triggered-by', type=str, default='manual', 
+                    help='Who triggered training: manual, auto, or user_id')
     args = parser.parse_args()
 
     # Generate model name if not provided
@@ -472,6 +537,8 @@ def main():
     print_progress(f"Min Images Per Class: {args.min_images_per_class}")
     print_progress(f"Data Directory: {args.data_dir}")
     print_progress(f"Output Directory: {args.output_dir}")
+    print_progress(f"Troggered by user ID: {args.triggered_by}")
+    
     print_progress("=" * 60)
 
     # Create config
@@ -498,6 +565,20 @@ def main():
         print_progress(f"ERROR: Failed to load dataset - {str(e)}")
         sys.exit(1)
 
+    # Connect to database and create training record
+    db_connection = get_db_connection(config)
+    training_id = None
+    if db_connection:
+        total_images = len(train_loader.dataset) + len(val_loader.dataset)
+        training_id = insert_training_record(
+            db_connection, 
+            config.triggered_by,
+            actual_model_name,
+            total_images,
+            len(class_names)
+        )
+        print_progress(f"Training record created with ID: {training_id}")
+
     # Save label map
     save_label_map(class_names, save_folder)
 
@@ -518,6 +599,20 @@ def main():
         plot_path = os.path.join(save_folder, "training_plot.png")
         plot_metrics(history, plot_path)
         
+        # Update database on success
+        if db_connection and training_id:
+            if not db_connection.is_connected():
+                db_connection.reconnect()
+            final_train_acc = history["train_acc"][-1]
+            update_training_record(
+                db_connection, 
+                training_id, 
+                'completed',
+                final_train_acc,
+                best_val_acc
+            )
+            db_connection.close()
+
         print_progress("=" * 60)
         print_progress("Training Complete!")
         print_progress(f"Best Validation Accuracy: {best_val_acc*100:.2f}%")
@@ -526,6 +621,16 @@ def main():
     
     except Exception as e:
         print_progress(f"ERROR: Training failed - {str(e)}")
+
+        if db_connection and training_id:
+            update_training_record(
+                db_connection,
+                training_id,
+                'failed',
+                error_msg=str(e)
+            )
+            db_connection.close()
+
         import traceback
         print_progress(traceback.format_exc())
         sys.exit(1)
