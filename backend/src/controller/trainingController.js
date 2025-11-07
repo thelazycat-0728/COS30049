@@ -1,6 +1,7 @@
 const auditLogger = require('../logger/auditLogger');
 const axios = require('axios');
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL;
+const pool = require('../config/database');
 
 // Start model training
 const startTraining = async (req, res) => {
@@ -20,12 +21,33 @@ const startTraining = async (req, res) => {
     
     res.json(response.data);
   } catch (error) {
-    console.error('Error starting training:', error);
-    auditLogger.error('training.start.error', { requestId: req.requestId, message: error?.message });
-    res.status(error.response?.status || 500).json({
+    const statusCode = error.response?.status || 500;
+    const backendData = error.response?.data || {};
+
+    console.error('Error starting training:', backendData || error.message);
+
+    const backendMessage =
+      backendData.error ||
+      backendData.message ||
+      backendData.detail ||
+      error.message;
+
+    const displayMessage =
+      statusCode === 409
+        ? backendMessage || 'Training already in progress'
+        : backendMessage || 'Failed to start training';
+
+    auditLogger.error('training.start.error', {
+      requestId: req.requestId,
+      status: statusCode,
+      backendResponse: backendData,
+      message: displayMessage,
+    });
+
+    res.status(statusCode).json({
       success: false,
-      error: 'Failed to start training',
-      message: error.response?.data?.message || error.message
+      error: displayMessage,
+      message: displayMessage,
     });
   }
 };
@@ -146,6 +168,101 @@ const activateModel = async (req, res) => {
   }
 };
 
+//Auto Retrain part
+
+// Get retrain stats
+const getRetrainStats = async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        retrain_accuracy, 
+        rejected_count, 
+        threshold_accuracy, 
+        threshold_count, 
+        auto_retrain
+      FROM retrain_stats 
+      WHERE id = 1
+    `);
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Retrain stats not found' });
+    }
+
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    console.error('Error fetching retrain stats:', error);
+    auditLogger.error('retrain.stats.fetch.error', { message: error.message });
+    res.status(500).json({ success: false, message: 'Failed to fetch retrain stats' });
+  }
+};
+
+// Update retrain stats (auto_retrain toggle & thresholds)
+const updateRetrainStats = async (req, res) => {
+  try {
+    const { auto_retrain, threshold_accuracy, threshold_count } = req.body;
+
+    await pool.query(`
+      UPDATE retrain_stats 
+      SET auto_retrain = ?, threshold_accuracy = ?, threshold_count = ?
+      WHERE id = 1
+    `, [auto_retrain ? 1 : 0, threshold_accuracy, threshold_count]);
+
+    auditLogger.info('retrain.stats.update', {
+      requestId: req.requestId,
+      user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
+      data: req.body
+    });
+
+    res.json({ success: true, message: 'Retrain stats updated successfully' });
+  } catch (error) {
+    console.error('Error updating retrain stats:', error);
+    auditLogger.error('retrain.stats.update.error', { message: error.message });
+    res.status(500).json({ success: false, message: 'Failed to update retrain stats' });
+  }
+};
+
+
+// Get training history for graph (last 5 completed trainings)
+const getTrainingHistory = async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        model_version,
+        training_accuracy,
+        validation_accuracy,
+        completed_at
+      FROM training_history 
+      WHERE status = 'completed'
+        AND training_accuracy IS NOT NULL 
+        AND validation_accuracy IS NOT NULL
+      ORDER BY completed_at DESC
+      LIMIT 5
+    `);
+
+    const historyData = rows.reverse();
+
+    // Prevent caching
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    res.json({ 
+      success: true, 
+      data: historyData
+    });
+  } catch (error) {
+    console.error('Error fetching training history:', error);
+    auditLogger.error('training.history.fetch.error', { 
+      requestId: req.requestId, 
+      message: error.message 
+    });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch training history' 
+    });
+  }
+};
+
 module.exports = {
   startTraining,
   getTrainingStatus,
@@ -153,5 +270,8 @@ module.exports = {
   getModels,
   deleteModel,
   getModelPlot,
-  activateModel
+  activateModel,
+  getRetrainStats,
+  updateRetrainStats,
+  getTrainingHistory
 };
