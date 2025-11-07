@@ -1262,6 +1262,103 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  sectionBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  MPsection: {
+    padding: 16,
+    marginBottom: 20, 
+  },
+  inputBox: {
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    minWidth: 100,
+  },
+  MPinputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 4,
+  },
+  input: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    padding: 0,
+  },
+  graphPlaceholder: {
+    backgroundColor: '#fafafa',
+    borderRadius: 8,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 8,
+  },
+  toggleSwitch: {
+    width: 60,
+    height: 32,
+    borderRadius: 16,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleOn: {
+    backgroundColor: '#2e7d32',
+  },
+  toggleOff: {
+    backgroundColor: '#d32f2f',
+  },
+  toggleCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    position: 'absolute',
+  },
+  circleLeft: {
+    left: 2,
+  },
+  circleRight: {
+    right: 2,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    width: '100%',
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  legendText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  toggleAndInputs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
 });
 
 export default styles;

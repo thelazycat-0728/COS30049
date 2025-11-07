@@ -519,9 +519,10 @@ def main():
                         help='Model name (auto-generated if not provided)')
     parser.add_argument('--output-dir', type=str, default='./models', 
                         help='Directory to save trained models')
-    parser.add_argument('--triggered-by', type=str, default='manual', 
-                    help='Who triggered training: manual, auto, or user_id')
+    parser.add_argument('--triggered-by', type=str, default=None, 
+                    help='Who triggered training: auto, or user_id')
     args = parser.parse_args()
+
 
     # Generate model name if not provided
     if args.model_name is None:

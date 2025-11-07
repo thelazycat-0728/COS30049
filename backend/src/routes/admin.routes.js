@@ -33,6 +33,12 @@ adminRouter.delete('/models/:modelName', auth.requireAdmin, trainingController.d
 adminRouter.get('/models/:modelName/plot', trainingController.getModelPlot);
 adminRouter.patch('/models/:modelName/activate', auth.requireAdmin, trainingController.activateModel);
 
+// Auto Retrain Section (admin)
+adminRouter.get('/retrain-stats', auth.requireAdmin, trainingController.getRetrainStats);
+adminRouter.post('/retrain-stats', auth.requireAdmin, trainingController.updateRetrainStats);
+adminRouter.get('/training-history', auth.requireAdmin, trainingController.getTrainingHistory);
+
+
 adminRouter.post('/cleanup-tokens', auth.requireAdmin, authController.cleanupExpiredTokens);
 
 // Plants management (admin/expert)

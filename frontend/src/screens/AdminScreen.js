@@ -21,6 +21,7 @@ import UsersSection from './admin/UsersSection';
 import SensorsSection from './admin/SensorsSection';
 import AlertsSection from './admin/AlertsSection';
 import ModelsSection from './admin/ModelsSection';
+import ModelPerformance from './admin/ModelPerformance';
 
 const API_URL = process.env.EXPO_PUBLIC_API_BASE;
 
@@ -69,6 +70,7 @@ const AdminScreen = () => {
     { id: 'sensors', label: 'Sensor Readings', icon: 'hardware-chip' },
     { id: 'alerts', label: 'Alerts', icon: 'warning' },
     { id: 'models', label: 'Models', icon: 'layers'},
+    { id: 'model-performance', label: 'Model Performance', icon: 'stats-chart' },
   ];
 
   // Filter sections based on user role
@@ -100,6 +102,8 @@ const AdminScreen = () => {
         return <AlertsSection {...sharedProps} />;
       case 'models':
         return <ModelsSection {...sharedProps} />;
+      case 'model-performance':
+        return <ModelPerformance {...sharedProps} />;
       default:
         return <PlantsSection {...sharedProps} />;
     }

@@ -2,6 +2,11 @@ const Observation = require("../models/Observation");
 const pool = require("../config/database");
 const StorageService = require("../services/storageService");
 const auditLogger = require('../logger/auditLogger');
+const path = require('path');
+const fs = require('fs');
+const FormData = require('form-data');
+const axios = require('axios');
+const AI_BACKEND_URL = process.env.AI_BACKEND_URL
 
 class ObservationController {
   /**
@@ -466,6 +471,65 @@ class ObservationController {
           error: "No fields to update",
         });
       }
+      // Send image to AI backend if status changed to 'verified'
+      if (previousStatus !== 'verified' && status === 'verified') {
+        try {
+          // Get plant information for class name
+          const [plants] = await pool.execute(
+            'SELECT scientific_name FROM Plants WHERE plant_id = ?',
+            [observation.plant_id]
+          );
+          
+          if (plants.length > 0 && observation.image_url) {
+            const plant = plants[0];
+            
+            const className = plant.scientific_name;
+            
+            // Convert relative path to absolute path
+            const imageFullPath = path.join(__dirname, '../..', observation.image_url);
+            
+            // Check if image exists
+            if (fs.existsSync(imageFullPath)) {
+              // Create form data
+              const formData = new FormData();
+              formData.append('image', fs.createReadStream(imageFullPath));
+              formData.append('class_name', className);
+              formData.append('observation_id', id.toString());
+
+              // Send to AI backend
+              const response = await axios.post(
+                `${AI_BACKEND_URL}/api/training/add-image`,
+                formData,
+                {
+                  headers: {
+                    ...formData.getHeaders()
+                  },
+                  timeout: 30000
+                }
+              );
+
+              console.log(`Sent verified image to AI backend: ${className}`, response.data);
+              
+              auditLogger.info('observation.ai_backend_sent', {
+                requestId: req.requestId,
+                observation_id: Number(id),
+                class_name: className,
+                response: response.data
+              });
+            }
+          }
+        } catch (aiError) {
+          // Log error but don't fail the update operation
+          console.error('Failed to send image to AI backend:', aiError);
+          auditLogger.error('observation.ai_backend_send_error', {
+            requestId: req.requestId,
+            observation_id: Number(id),
+            message: aiError?.message,
+          });
+        }
+      }
+
+
 
       // Get updated observation
       const updatedObservation = await Observation.findById(id);
