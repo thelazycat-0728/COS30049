@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const BASE_URL = "http://localhost:5000";
+const BASE_URL = "http://localhost:8080";
 
 async function testJWTManipulation() {
   console.log("\n🔐 JWT Token Manipulation Security Test (with MFA)\n");
@@ -30,7 +30,7 @@ async function testJWTManipulation() {
     try {
       initialLoginRes = await axios.post(`${BASE_URL}/auth/login`, {
         email: "jonathanyeokk@gmail.com",
-        password: "helloworld123",
+        password: "HurhCat123!",
       });
 
       tempToken = initialLoginRes.data.tempToken;
@@ -108,6 +108,7 @@ async function testJWTManipulation() {
           const mfaRes = await axios.post(`${BASE_URL}/auth/verify-mfa`, {
             tempToken,
             code: mfaCode,
+            login: true,
           });
 
           validToken = mfaRes.data.accessToken;
@@ -117,7 +118,7 @@ async function testJWTManipulation() {
             validToken.substring(0, 50) + "..."
           );
         } catch (mfaError) {
-          console.error("❌ MFA verification failed:", mfaError.response?.data);
+          console.error("❌ MFA verification failed:", mfaError);
           return;
         }
 
@@ -155,10 +156,27 @@ async function testJWTManipulation() {
           }
         }
 
+
+
+        console.log('Test 3: Accessing endpoint with valid token but wrong privileges');
+
+        try {
+          await axios.get(`${BASE_URL}/admin/users`, {
+            headers: { Authorization: `Bearer ${validToken}` },
+          });
+          console.log("❌ VULNERABILITY: User token accessed admin endpoint!");
+        } catch (privError) {
+          if (privError.response?.status === 403) {
+            console.log("✅ SECURE: Access to admin endpoint correctly forbidden");
+          } else {
+            console.log("⚠️  Unexpected error:", privError.response?.status);
+          }
+        }
+
         // ============================================
         // Test 4: Expired token
         // ============================================
-        console.log("\n🧪 Test 3: Expired token");
+        console.log("\n🧪 Test 4: Expired token");
         const expiredToken = jwt.sign(
           {
             userId: decoded.id,
@@ -183,7 +201,7 @@ async function testJWTManipulation() {
         // ============================================
         // Test 5: Token with modified expiry
         // ============================================
-        console.log("\n🧪 Test 4: Token with extended expiry");
+        console.log("\n🧪 Test 5: Token with extended expiry");
         const extendedToken = jwt.sign(
           {
             ...decoded,
@@ -206,7 +224,7 @@ async function testJWTManipulation() {
         // ============================================
         // Test 6: Malformed tokens
         // ============================================
-        console.log("\n🧪 Test 5: Malformed tokens");
+        console.log("\n🧪 Test 6: Malformed tokens");
         const malformedTokens = [
           "not-a-jwt",
           "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.signature",
@@ -230,7 +248,7 @@ async function testJWTManipulation() {
         // ============================================
         // Test 7: Token reuse after logout
         // ============================================
-        console.log("\n🧪 Test 6: Token reuse after logout");
+        console.log("\n🧪 Test 7: Token reuse after logout");
 
         // Logout
         try {

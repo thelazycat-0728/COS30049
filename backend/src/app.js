@@ -14,6 +14,7 @@ const adminRouter = require('./routes/admin.routes');
 const userRouter = require('./routes/user.routes'); 
 const profileRouter = require('./routes/profile.routes');
 const plantRouter = require('./routes/plant.routes');
+const rateLimiter = require('./middleware/rateLimiter');
 
 
 
@@ -38,6 +39,7 @@ app.use('/user', userRouter);
 app.use('/profile', profileRouter);
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 app.use('/plants', plantRouter);
+app.use(rateLimiter.rateLimiter); // Apply rate limiting to all routes  
 
 
 

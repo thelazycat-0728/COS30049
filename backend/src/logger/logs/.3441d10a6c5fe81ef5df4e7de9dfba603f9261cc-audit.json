@@ -19,6 +19,11 @@
             "date": 1762439585897,
             "name": "C:\\COS30049\\backend\\src\\logger\\logs\\audit-2025-11-06.log",
             "hash": "d3fb4ccd2115fdc635b8ced442fe7900825f6b3f13802d44f5121ce845843bee"
+        },
+        {
+            "date": 1762446715111,
+            "name": "C:\\COS30049\\backend\\src\\logger\\logs\\audit-2025-11-07.log",
+            "hash": "9cd84db7ba6bb1c40dd07504376a340416b96fb08bdb01e4bbe1ca4a68db5f61"
         }
     ],
     "hashType": "sha256"
