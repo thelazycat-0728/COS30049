@@ -65,6 +65,7 @@ const ModelsSection = ({ API_URL, getAuthToken, currentUserId }) => {
 
   useEffect(() => {
     loadModels();
+    checkTrainingStatus();
   }, [modelsPage, searchQuery, statusFilter, sortBy, sortOrder]);
 
   useEffect(() => {
@@ -150,6 +151,7 @@ const ModelsSection = ({ API_URL, getAuthToken, currentUserId }) => {
         });
         
         if (response.ok) {
+
           const data = await response.json();
           setTrainingStatus(data.status);
           
@@ -362,6 +364,7 @@ const ModelsSection = ({ API_URL, getAuthToken, currentUserId }) => {
     try {
       setRefreshing(true);
       await loadModels();
+      await checkTrainingStatus();
     } finally {
       setRefreshing(false);
     }
