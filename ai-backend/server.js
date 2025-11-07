@@ -6,6 +6,7 @@ const fsSync = require('fs');
 const cors = require('cors');
 require('dotenv').config();
 const mysql = require('mysql2/promise');
+const schedule = require('node-schedule');
 
 const multer = require('multer');
 const os = require('os');
@@ -70,6 +71,11 @@ app.get('/health', (req, res) => {
   });
 });
 
+
+// ============================================
+// TRAINING MODEL SECTION
+// ============================================
+
 //Start training
 app.post('/api/train', async (req, res) => {
   try {
@@ -77,6 +83,7 @@ app.post('/api/train', async (req, res) => {
       return res.status(409).json({
         success: false,
         error: 'Training already in progress',
+        message: 'Training already in progress',
         currentStatus: trainingStatus
       });
     }
@@ -178,16 +185,22 @@ app.post('/api/train', async (req, res) => {
       console.log(`Training process exited with code ${code}`);
       trainingStatus.isTraining = false;
 
+      let newStatus = 'failed';
+      
+
       if (code === 0) {
         trainingStatus.progress = 100;
         console.log('Training completed successfully');
+        newStatus = 'completed';
 
       } else if (code == null) {
-        trainingStatus.error = 'Training stopped by user';
-        console.log('Training stopped by user');
+        trainingStatus.error = 'Training stopped by admin';
+        console.log('Training stopped by admin');
+        newStatus = 'failed';
       } else {
         trainingStatus.error = `Training failed with exit code ${code}`;
         console.error('Training failed');
+        newStatus = 'failed';
         
 
         if (actualModelName){
@@ -201,6 +214,21 @@ app.post('/api/train', async (req, res) => {
             console.error('Failed to clean up model folder:', err.message);
           }
         }
+      }
+
+      try {
+        if (actualModelName){
+          await db.execute(
+            `UPDATE training_history 
+            SET status = ?, error_message = ?
+            WHERE model_version = ? AND status = 'in_progress'`,
+            [newStatus, trainingStatus.error ,actualModelName]
+          );
+          console.log(`Database updated: ${actualModelName} → ${newStatus}`);
+        }
+      }catch (dbErr) {
+        console.error('Failed to update training status in database:', dbErr.message);
+
       }
     });
 
@@ -630,6 +658,11 @@ app.patch('/api/models/:modelName/activate', async (req, res) => {
   }
 });
 
+
+// ============================================
+// CLASSIFYING IMAGE SECTION
+// ============================================
+
 // Temporary file upload
 const upload = multer({ 
   dest: os.tmpdir(),
@@ -742,6 +775,11 @@ app.post('/api/classify', upload.single('image'), async (req, res) => {
     });
   }
 });
+
+
+// ============================================
+// ADMIN MODIFY PLANT CLASS NAME SECTION
+// ============================================
 
 //Create dataset folder for new plant
 app.post('/api/dataset/folder', async (req, res) => {
@@ -884,6 +922,307 @@ function parseTrainingOutput(output) {
   }
 }
 
+// Receive verified observation image for training dataset
+app.post('/api/training/add-image', upload.single('image'), async (req, res) => {
+  let tempFilePath = null;
+  
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No image file provided'
+      });
+    }
+
+    const { class_name, observation_id } = req.body;
+    
+    if (!class_name) {
+      return res.status(400).json({
+        success: false,
+        error: 'class_name is required'
+      });
+    }
+
+    tempFilePath = req.file.path;
+    console.log('Received training image:', {
+      observation_id,
+      class_name,
+      tempFile: tempFilePath
+    });
+
+    // Sanitize class name
+    const sanitizedClassName = class_name
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[<>:"/\\|?*]/g, '_');
+
+    // Target folder path
+    const classFolder = path.join(DATASET_DIR, sanitizedClassName);
+
+    // Create folder if it doesn't exist
+    if (!fsSync.existsSync(classFolder)) {
+      await fs.mkdir(classFolder, { recursive: true });
+      console.log('Created new class folder:', classFolder);
+    }
+
+    // Generate unique filename
+    const fileExt = path.extname(req.file.originalname) || '.jpg';
+    const newFileName = `obs_${observation_id}_${Date.now()}${fileExt}`;
+    const destinationPath = path.join(classFolder, newFileName);
+
+    // Move file from temp to dataset folder
+    await fs.copyFile(tempFilePath, destinationPath);
+    console.log('Image saved to dataset:', destinationPath);
+
+    // Clean up temp file
+    await fs.unlink(tempFilePath);
+
+    res.json({
+      success: true,
+      message: 'Image added to training dataset',
+      class_name: sanitizedClassName,
+      file_path: destinationPath,
+      observation_id
+    });
+
+  } catch (error) {
+    // Clean up temp file on error
+    if (tempFilePath) {
+      try {
+        await fs.unlink(tempFilePath);
+      } catch (err) {
+        console.error('Failed to clean up temp file:', err);
+      }
+    }
+
+    console.error('Error adding training image:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add image to training dataset',
+      message: error.message
+    });
+  }
+});
+
+// ============================================
+// AUTO-RETRAIN FUNCTIONS
+// ============================================
+
+// Check if retrain thresholds are met
+async function checkRetrainThreshold() {
+  try {
+    console.log('\n[Auto-Retrain] Checking thresholds...');
+    
+    const [rows] = await db.query(`
+      SELECT 
+        retrain_accuracy,
+        rejected_count,
+        threshold_accuracy,
+        threshold_count,
+        auto_retrain
+      FROM retrain_stats 
+      WHERE id = 1
+    `);
+    
+    if (!rows || rows.length === 0) {
+      console.log('[Auto-Retrain] No retrain stats found');
+      return false;
+    }
+    
+    const stats = rows[0];
+    
+    // Check if auto_retrain is enabled
+    if (stats.auto_retrain == 0) {
+      console.log('[Auto-Retrain] Auto-retrain is disabled');
+      return false;
+    }
+    if (trainingStatus.isTraining) {
+      console.log('[Auto-Retrain] Training already in progress, skipping');
+      return false;
+    }
+    const countThresholdMet = stats.rejected_count >= stats.threshold_count;
+    const accuracyThresholdMet = stats.retrain_accuracy <= stats.threshold_accuracy;
+    
+    console.log(`[Auto-Retrain] Rejected count: ${stats.rejected_count}/${stats.threshold_count} ${countThresholdMet ? 'Yes' : 'No'}`);
+    console.log(`[Auto-Retrain] Retrain accuracy: ${stats.retrain_accuracy}/${stats.threshold_accuracy} ${accuracyThresholdMet ? 'Yes' : 'No'}`);
+    
+    if (countThresholdMet && accuracyThresholdMet) {
+      console.log('[Auto-Retrain] Both thresholds met. Triggering retrain...');
+      return true;
+    }
+    
+    console.log('[Auto-Retrain] Both thresholds not met yet');
+    return false;
+    
+  } catch (error) {
+    console.error('[Auto-Retrain] Error checking threshold:', error);
+    return false;
+  }
+}
+
+// Trigger automatic retraining
+async function triggerAutoRetrain() {
+  try {
+    console.log('[Auto-Retrain] Starting automatic retraining...');
+    
+    // Generate model name with timestamp
+    const modelName = `auto_retrain_${Date.now()}`;
+    const epochs = 30;
+    const batchSize = 32;
+    const learningRate = 0.00001;
+    
+    // Reset training status
+    trainingStatus = {
+      isTraining: true,
+      modelName: modelName,
+      progress: 0,
+      epoch: 0,
+      totalEpochs: epochs,
+      loss: null,
+      accuracy: null,
+      stage: 'stage1',
+      startTime: new Date(),
+      error: null
+    };
+    
+    // Start training process
+    trainingProcess = spawn('python', [
+      PYTHON_SCRIPT,
+      '--data-dir', DATASET_DIR,
+      '--epochs', epochs.toString(),
+      '--batch-size', batchSize.toString(),
+      '--learning-rate', learningRate.toString(),
+      '--model-name', modelName,
+      '--output-dir', MODELS_DIR,    
+    ]);
+
+    let actualModelName = modelName;
+    
+    // Capture stdout
+    trainingProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(output);
+      const lines = output.split('\n').filter(line => line.trim());
+      
+      for (const line of lines) {
+        try {
+          const jsonData = JSON.parse(line);
+          if (jsonData.event === "model_folder_created") {
+            actualModelName = jsonData.model_name;
+            trainingProcess.actualModelName = actualModelName;
+            trainingStatus.modelName = actualModelName;
+            console.log('[Auto-Retrain] Model folder created:', actualModelName);
+          }
+        } catch (err) {
+          parseTrainingOutput(line);
+        }
+      }
+    });
+    
+    // Capture stderr
+    trainingProcess.stderr.on('data', (data) => {
+      const error = data.toString();
+      console.error('[Auto-Retrain] Error:', error);
+      trainingStatus.error = error;
+    });
+    
+    // Handle process completion
+    trainingProcess.on('close', async (code) => {
+      console.log(`[Auto-Retrain] Process exited with code ${code}`);
+      trainingStatus.isTraining = false;
+      
+       if (code === 0) {
+        trainingStatus.progress = 100;
+        console.log('[Auto-Retrain] Training completed successfully');
+        newStatus = 'completed';
+        await resetRetrainStats();
+        // await autoActivateModel(actualModelName);
+
+      } else if (code == null) {
+        trainingStatus.error = 'Training stopped by admin';
+        console.log('[Auto-Retrain] Training stopped by admin');
+        newStatus = 'failed';
+      } else {
+        trainingStatus.error = `Training failed with exit code ${code}`;
+        console.error('[Auto-Retrain] Training failed');
+        newStatus = 'failed';
+
+        // Clean up failed model
+        if (actualModelName) {
+          const modelDir = path.join(MODELS_DIR, actualModelName);
+          try {
+            if (fsSync.existsSync(modelDir)) {
+              await fs.rm(modelDir, { recursive: true, force: true });
+              console.log(`[Auto-Retrain] Cleaned up failed model: ${actualModelName}`);
+            }
+          } catch (err) {
+            console.error('[Auto-Retrain] Failed to clean up:', err.message);
+          }
+        }
+      }
+
+      try {
+          if (actualModelName){
+            await db.execute(
+            `UPDATE training_history 
+            SET status = ?, error_message = ?
+            WHERE model_version = ? AND status = 'in_progress'`,
+            [newStatus, trainingStatus.error ,actualModelName]
+            );
+            console.log(`Database updated: ${actualModelName} → ${newStatus}`);
+          }
+        }catch (dbErr) {
+          console.error('Failed to update training status in database:', dbErr.message);
+
+        }
+    });
+    return true;
+    
+  } catch (error) {
+    console.error('[Auto-Retrain] Error triggering retrain:', error);
+    trainingStatus.isTraining = false;
+    trainingStatus.error = error.message;
+    return false;
+  }
+}
+
+
+// Reset retrain stats after successful training
+
+async function resetRetrainStats() {
+  try {
+    await db.query(`
+      UPDATE retrain_stats 
+      SET retrain_accuracy = 0.0000,
+          rejected_count = 0,
+          last_retrain_date = NOW()
+      WHERE id = 1
+    `);
+    console.log('[Auto-Retrain] Stats reset successfully');
+  } catch (error) {
+    console.error('[Auto-Retrain] Failed to reset stats:', error);
+  }
+}
+
+
+// Main auto-retrain check job
+
+async function autoRetrainJob() {
+  console.log('\n' + '='.repeat(60));
+  console.log(`[Auto-Retrain] Running check at ${new Date().toISOString()}`);
+  console.log('='.repeat(60));
+  
+  const shouldRetrain = await checkRetrainThreshold();
+  
+  if (shouldRetrain) {
+    await triggerAutoRetrain();
+  } else {
+    console.log('[Auto-Retrain] No action needed\n');
+  }
+}
+
+
 // ============================================
 // START SERVER
 // ============================================
@@ -894,5 +1233,13 @@ app.listen(PORT, () => {
   console.log(`Models directory: ${MODELS_DIR}`);
   console.log(`Python script: ${PYTHON_SCRIPT}`);
   console.log('');
+  console.log('Running initial auto-retrain check on startup...\n');
+  setTimeout(async () => {
+    await autoRetrainJob();
+  }, 5000); // Wait 5 seconds for server to fully start
 
+  //const job = schedule.scheduleJob('*/10 * * * *', autoRetrainJob); // Every 10 minutes
+  const job = schedule.scheduleJob('*/1 * * * *', autoRetrainJob); // Every 10 minutes
+  console.log('Auto-retrain scheduler initialized (checks every 10 minutes)');
+  console.log('');
 });
