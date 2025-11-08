@@ -1,0 +1,31 @@
+{
+  "name": "cos30049-testing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Test suite for COS30049 project (frontend React Native screens and backend API).",
+  "scripts": {
+    "test": "jest --config ./jest.config.js",
+    "test:watch": "jest --config ./jest.config.js --watch",
+    "coverage": "jest --config ./jest.config.js --coverage",
+    "test:map": "jest --config ./jest.config.js --testPathPattern=testing/map",
+    "test:plantdetail": "jest --config ./jest.config.js --testPathPattern=testing/plantdetail",
+    "test:admin": "jest --config ./jest.config.js --testPathPattern=testing/admin",
+    "test:identify": "jest --config ./jest.config.js --testPathPattern=testing/identify",
+    "test:observations": "jest --config ./jest.config.js --testPathPattern=testing/observations",
+    "test:integration": "jest --config ./jest.config.js --testPathPattern=testing/integration"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "babel-jest": "^29.7.0",
+    "@babel/core": "^7.26.0",
+    "react-test-renderer": "19.1.0",
+    "supertest": "^6.3.3",
+    "jsonwebtoken": "^9.0.2",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5"
+  },
+  "jest": {
+    "preset": null,
+    "testEnvironment": "node"
+  }
+}
