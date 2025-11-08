@@ -309,7 +309,7 @@ const HomeScreen = () => {
               <Ionicons 
                 name="grid" 
                 size={18} 
-                color={isGridLayout ? '#fff' : '#2e7d32'} 
+                color={isGridLayout ? '#fff' : '#4CAF50'} 
               />
             </TouchableOpacity>
             <TouchableOpacity 
@@ -319,7 +319,7 @@ const HomeScreen = () => {
               <Ionicons 
                 name="list" 
                 size={18} 
-                color={!isGridLayout ? '#fff' : '#2e7d32'} 
+                color={!isGridLayout ? '#fff' : '#4CAF50'} 
               />
             </TouchableOpacity>
           </View>
@@ -347,8 +347,8 @@ const HomeScreen = () => {
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                colors={['#2e7d32']}
-                tintColor={'#2e7d32'}
+                colors={['#4CAF50']}
+                tintColor={'#4CAF50'}
               />
             }
             ListEmptyComponent={
@@ -375,7 +375,7 @@ const HomeScreen = () => {
                     onPress={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
                     disabled={currentPage <= 1}
                   >
-                    <Ionicons name="chevron-back" size={20} color={currentPage <= 1 ? '#ccc' : '#2e7d32'} />
+                    <Ionicons name="chevron-back" size={20} color={currentPage <= 1 ? '#ccc' : '#4CAF50'} />
                     <Text style={[styles.pageButtonText, currentPage <= 1 && styles.disabledText]}>
                       Previous
                     </Text>
@@ -398,7 +398,7 @@ const HomeScreen = () => {
                     <Text style={[styles.pageButtonText, currentPage >= totalPlantPages && styles.disabledText]}>
                       Next
                     </Text>
-                    <Ionicons name="chevron-forward" size={20} color={currentPage >= totalPlantPages ? '#ccc' : '#2e7d32'} />
+                    <Ionicons name="chevron-forward" size={20} color={currentPage >= totalPlantPages ? '#ccc' : '#4CAF50'} />
                   </TouchableOpacity>
                 </View>
               )
@@ -508,8 +508,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
   layoutButtonActive: {
-    backgroundColor: '#2e7d32',
-    shadowColor: '#2e7d32',
+    backgroundColor: '#4CAF50',
+    shadowColor: '#4CAF50',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -590,7 +590,7 @@ const styles = StyleSheet.create({
   },
   plantScientific: {
     fontSize: 13,
-    color: '#2e7d32',
+    color: '#4CAF50',
     fontStyle: 'italic',
     fontWeight: '500',
     marginBottom: 6,
@@ -625,7 +625,7 @@ const styles = StyleSheet.create({
   },
   viewButtonText: {
     fontSize: 13,
-    color: '#2e7d32',
+    color: '#4CAF50',
     fontWeight: '600',
     marginRight: 4,
   },
@@ -737,7 +737,7 @@ const styles = StyleSheet.create({
   },
   pageButtonText: {
     fontSize: 14,
-    color: '#2e7d32',
+    color: '#4CAF50',
     fontWeight: '600',
     marginHorizontal: 6,
   },
