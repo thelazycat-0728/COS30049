@@ -196,6 +196,8 @@ const MapScreen = () => {
       if (!mapRegion) return;
       const params = new URLSearchParams();
       params.set("limit", "2000");
+      // Align heatmap with public-only markers
+      params.set("public", "1");
       const selFamiliesForHeat = Array.isArray(filterFamilies)
         ? filterFamilies.filter(Boolean)
         : [];
