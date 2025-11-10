@@ -19,36 +19,17 @@ module.exports = (req, res, next) => {
         };
     };
 
-    // Log request start (minimal)
-    auditLogger.info('request.received', {
-        requestId,
-        method: req.method,
-        path: req.originalUrl,
-        ip: req.ip,
-        userAgent: req.headers['user-agent'],
-        user: getUser(),
-    });
-
-    // On response finish, log outcome
-    res.on('finish', () => {
-        const durationMs = Number((process.hrtime.bigint() - start) / 1000000n);
-        auditLogger.info('request.completed', {
-            requestId,
-            method: req.method,
-            path: req.originalUrl,
-            statusCode: res.statusCode,
-            durationMs,
-            ip: req.ip,
-            user: getUser(),
-        });
-    });
-
     // Additional semantic events for auth endpoints
     if (req.method === 'POST' && /\/auth\/login/i.test(req.originalUrl)) {
+        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
         auditLogger.info('auth.login.attempt', {
             requestId,
             username: req.body?.username || req.body?.email || 'unknown',
             ip: req.ip,
+            // best-effort explicit fields for DB
+            target_table: 'Users',
+            target_id: 0,
+            action_time: now,
         });
     }
 
