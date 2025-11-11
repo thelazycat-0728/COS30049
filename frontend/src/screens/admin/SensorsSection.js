@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   TextInput,
   RefreshControl,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Line, Circle, Path, Text as SvgText } from 'react-native-svg';
@@ -30,6 +31,7 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
   const [sensorSeriesBySensor, setSensorSeriesBySensor] = useState({});
   const [sensorSeriesLoading, setSensorSeriesLoading] = useState(false);
   const [chartWidth, setChartWidth] = useState(0);
+  const [autoRefreshSensors, setAutoRefreshSensors] = useState(false);
 
   // Filter and search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -350,6 +352,22 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
     await fetchSensorReadingsForSensors(sensorsForObs);
   };
 
+  // Auto-refresh sensor readings every 1 second when enabled and modal is open
+  useEffect(() => {
+    let interval;
+    const shouldRun = sensorsObsModalVisible && autoRefreshSensors && selectedObservationSensors && selectedObservationSensors.length > 0;
+    if (shouldRun) {
+      // Immediate refresh
+      fetchSensorReadingsForSensors(selectedObservationSensors);
+      interval = setInterval(() => {
+        fetchSensorReadingsForSensors(selectedObservationSensors);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [sensorsObsModalVisible, autoRefreshSensors, selectedObservationSensors]);
+
   const getStatusColor = (status) => {
     const map = {
       pending: '#FFC107',
@@ -606,6 +624,14 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
+            {/* Auto Refresh Toggle */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="refresh" size={18} color="#2e7d32" />
+                <Text style={{ color: '#333' }}>Auto Refresh (1s)</Text>
+              </View>
+              <Switch value={autoRefreshSensors} onValueChange={setAutoRefreshSensors} />
+            </View>
             <ScrollView style={styles.modalBodyScroll} contentContainerStyle={styles.modalBody} nestedScrollEnabled showsVerticalScrollIndicator={true}>
               {selectedSensorsObservation ? (
                 <>
@@ -639,7 +665,7 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
                         <Text style={styles.scientificName}>Last Checked: {new Date(sensor.lastChecked).toLocaleString()}</Text>
                       )}
                       <Text style={styles.obsMetaText}>Sensor ID: {sensor.sensorId}</Text>
-                      {sensorSeriesLoading ? (
+                      {(!sensorSeriesBySensor[sensor.sensorId] && sensorSeriesLoading) ? (
                         <View style={styles.placeholderBox}>
                           <ActivityIndicator size="small" color="#2e7d32" />
                           <Text style={{ marginTop: 8, color: '#666' }}>Loading readings...</Text>
