@@ -480,6 +480,9 @@ class ObservationController {
             [observation.plant_id]
           );
           
+
+          // Change to S3
+          
           if (plants.length > 0 && observation.image_url) {
             const plant = plants[0];
             
