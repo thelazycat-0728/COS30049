@@ -1239,7 +1239,7 @@ app.listen(PORT, () => {
   }, 5000); // Wait 5 seconds for server to fully start
 
   //const job = schedule.scheduleJob('*/10 * * * *', autoRetrainJob); // Every 10 minutes
-  const job = schedule.scheduleJob('*/1 * * * *', autoRetrainJob); // Every 10 minutes
+  const job = schedule.scheduleJob('*/10 * * * *', autoRetrainJob); // Every 10 minutes
   console.log('Auto-retrain scheduler initialized (checks every 10 minutes)');
   console.log('');
 });
