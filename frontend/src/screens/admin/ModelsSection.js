@@ -667,7 +667,7 @@ const ModelsSection = ({ API_URL, getAuthToken, currentUserId }) => {
               <View style={styles.infoBox}>
                 <Ionicons name="information-circle" size={20} color="#2e7d32" />
                 <Text style={styles.infoText}>
-                  The model will be trained using MobileNetV2 with two-stage training.
+                  The model will be trained using ResNet50 with two-stage training.
                   Stage 1: Train classifier head | Stage 2: Fine-tune entire network
                 </Text>
               </View>

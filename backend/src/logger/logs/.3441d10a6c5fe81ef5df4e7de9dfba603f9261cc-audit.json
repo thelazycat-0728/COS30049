@@ -6,16 +6,6 @@
     "auditLog": "C:\\COS30049\\backend\\src\\logger\\logs\\.3441d10a6c5fe81ef5df4e7de9dfba603f9261cc-audit.json",
     "files": [
         {
-            "date": 1762237359380,
-            "name": "C:\\COS30049\\backend\\src\\logger\\logs\\audit-2025-11-04.log",
-            "hash": "bf93918a1a29f427b6a82dd66ac1e90bceac28f5b3fe4e0e790a2ae7fd748400"
-        },
-        {
-            "date": 1762272005765,
-            "name": "C:\\COS30049\\backend\\src\\logger\\logs\\audit-2025-11-05.log",
-            "hash": "b08e099e2743e9388b8f3f98af7fefddc1451981e53904a8a6c888c6aa10557f"
-        },
-        {
             "date": 1762439585897,
             "name": "C:\\COS30049\\backend\\src\\logger\\logs\\audit-2025-11-06.log",
             "hash": "d3fb4ccd2115fdc635b8ced442fe7900825f6b3f13802d44f5121ce845843bee"
@@ -29,6 +19,11 @@
             "date": 1762837821468,
             "name": "C:\\COS30049\\backend\\src\\logger\\logs\\audit-2025-11-11.log",
             "hash": "515b18063f1bac20dc4078748651a456ee628dbfe784ccfeddab275ae30a99cf"
+        },
+        {
+            "date": 1762940143086,
+            "name": "C:\\COS30049\\backend\\src\\logger\\logs\\audit-2025-11-12.log",
+            "hash": "ea9f1f32282c5f0b3b48e3997a9b3d9c98701fb829809c1e248332aa38c02958"
         }
     ],
     "hashType": "sha256"
