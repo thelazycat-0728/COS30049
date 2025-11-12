@@ -69,7 +69,6 @@ class AuthController {
         },
       });
     } catch (error) {
-      auditLogger.info(`Registration error: ${error.message}`); // Audit log
       console.error("Register error:", error);
       res.status(500).json({ error: "Registration failed" });
     }
@@ -85,6 +84,18 @@ class AuthController {
           .json({ success: false, error: "username is required" });
       }
       const existing = await User.findByUsername(username);
+      auditLogger.info('auth.checkUsername', {
+          requestId: req.requestId,
+          user: userObj,
+          username: username,
+          exists: !!existing,
+          params: req.params || {},
+          query: req.query || {},
+          // if username exists, attach found user's id as target
+          target_table: 'Users',
+          target_id: existing ? (existing.user_id || existing.id || 0) : 0,
+          action_time: now,
+        });
       return res.json({ success: true, exists: !!existing });
     } catch (error) {
       console.error("checkUsername error:", error);
@@ -164,11 +175,7 @@ class AuthController {
       // Send code via email
       try {
         await emailService.sendMFACode(user.email, code, user.username);
-        auditLogger.info(`MFA code sent to user: ${user.email}`); // Audit log
       } catch (error) {
-        auditLogger.error(
-          `Failed to send MFA code to user: ${user.email} - ${error.message}`
-        ); // Audit log
         console.error("Failed to send MFA email:", error);
         return res.status(500).json({
           success: false,
@@ -257,7 +264,6 @@ class AuthController {
           });
         }
       } catch (error) {
-        auditLogger.info(`MFA verification failed - Invalid or expired token`); // Audit log
         return res.status(401).json({
           success: false,
           error: "Token expired or invalid",
@@ -269,9 +275,6 @@ class AuthController {
       const isValid = await MFACode.verify(decoded.id, code);
 
       if (!isValid) {
-        auditLogger.info(
-          `MFA verification failed - Invalid code for user ID: ${decoded.id}`
-        ); // Audit log
         return res.status(401).json({
           success: false,
           error: "Invalid or expired verification code",
@@ -293,9 +296,6 @@ class AuthController {
       const user = await User.findById(decoded.id);
 
       if (!user) {
-        auditLogger.info(
-          `MFA verification failed - User not found for ID: ${decoded.id}`
-        ); // Audit log
         return res.status(401).json({
           success: false,
           error: "User not found",
@@ -324,6 +324,21 @@ class AuthController {
       // Clear temporary token cookie
       res.clearCookie("tempToken");
 
+      // Audit successful login
+      try {
+        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        auditLogger.info('auth.login.success', {
+          requestId: req.requestId,
+          user: { id: user.user_id || user.id || 0, username: user.username, role: user.role },
+          target_table: 'Users',
+          target_id: user.user_id || user.id || 0,
+          ip: req.ip,
+          action_time: now,
+        });
+      } catch (e) {
+        console.error('Audit log (auth.login.success) failed:', e && e.message ? e.message : e);
+      }
+
       res.json({
         success: true,
         message: "Login successful",
@@ -338,7 +353,6 @@ class AuthController {
         },
       });
     } catch (error) {
-      auditLogger.error(`MFA verification error: ${error.message}`); // Audit log
       console.error("MFA verification error:", error);
       res.status(500).json({
         success: false,
@@ -382,7 +396,6 @@ class AuthController {
       // Check rate limiting
       const recentAttempts = await MFACode.getRecentAttempts(decoded.id);
       if (recentAttempts >= 5) {
-        auditLogger.info(`MFA rate limit exceeded for user ID: ${decoded.id}`); // Audit log
         return res.status(429).json({
           success: false,
           error: "Too many attempts. Please wait 15 minutes.",
@@ -393,9 +406,6 @@ class AuthController {
       const user = await User.findById(decoded.user_id);
 
       if (!user) {
-        auditLogger.info(
-          `MFA rate limit exceeded - User not found for ID: ${decoded.id}`
-        ); // Audit log
         return res.status(404).json({
           success: false,
           error: "User not found",
@@ -409,14 +419,12 @@ class AuthController {
 
       // Send email
       await emailService.sendMFACode(user.email, code, user.username);
-      auditLogger.info(`New MFA code resent to user: ${user.email}`); // Audit log
 
       res.json({
         success: true,
         message: "New verification code sent to your email",
       });
     } catch (error) {
-      auditLogger.error(`Resend MFA error: ${error.message}`); // Audit log
       console.error("Resend MFA error:", error);
       res.status(500).json({
         success: false,

@@ -227,6 +227,12 @@ class LocationController {
       const limit = Math.min(parseInt(req.query.limit || '1000', 10) || 1000, 5000);
       const { where, params } = buildFilterWhereAndParams(req.query);
 
+      // Optional: restrict to public observations when requested
+      const publicParam = (req.query.public || '').toString().toLowerCase();
+      if (publicParam === '1' || publicParam === 'true' || publicParam === 'public') {
+        where.push('po.public = 1');
+      }
+
       // Optional viewport bounding box filtering
       const minLat = req.query.min_lat ? Number(req.query.min_lat) : null;
       const maxLat = req.query.max_lat ? Number(req.query.max_lat) : null;

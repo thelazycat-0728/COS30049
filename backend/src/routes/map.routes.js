@@ -10,8 +10,8 @@ mapRouter.get('/locations/admin', auth.requireAdmin, LocationController.adminLoc
 // User locations listing (public-only)
 mapRouter.get('/locations/user', auth.requireAuth, LocationController.userLocations);
 
-// Public map locations
-mapRouter.get('/locations/public', auth.requireAuth, LocationController.publicLocations);
+// Public map locations (no auth required)
+mapRouter.get('/locations/public', LocationController.publicLocations);
 
 // Density heatmap
 mapRouter.get('/locations/density', auth.requireAuth, LocationController.densityHeatmap);

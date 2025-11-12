@@ -2,6 +2,16 @@ const User = require("../models/User");
 const pool = require('../config/database');
 const auditLogger = require('../logger/auditLogger');
 
+// Deterministic non-null audit user helper
+function getAuditUser(req) {
+  const user = req.user || {};
+  return {
+    id: user.id || user.user_id || 0,
+    username: user.username || user.email || 'anonymous',
+    role: user.role || 'guest',
+  };
+}
+
 class UserController {
   static async updateUserRole(req, res) {
     try {
@@ -21,18 +31,28 @@ class UserController {
         return res.status(404).json({ success: false, message: "User not found" });
       }
 
-      auditLogger.info('user.role.update', {
-        requestId: req.requestId,
-        actor: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
-        targetUserId: userId,
-        newRole,
-      });
+      // Audit role update: include explicit target_table and target_id so DB persistence can pick them up
+      try {
+        auditLogger.info('user.role.update', {
+          requestId: req.requestId,
+          // Use deterministic non-null actor shape used elsewhere
+          user: getAuditUser(req),
+          // explicit DB-friendly fields expected by the persistence hook
+          target_table: 'Users',
+
+          target_id: Number(userId) || 0,
+          // keep legacy key for compatibility with other parsers
+          targetUserId: userId,
+          newRole,
+        });
+      } catch (e) {
+        console.error('Audit log (user.role.update) failed:', e && e.message ? e.message : e);
+      }
 
       return res
         .status(200)
         .json({ success: true, message: "User role updated successfully" });
     } catch (error) {
-      auditLogger.error('user.role.update.error', { requestId: req.requestId, targetUserId: req.params.id || req.body.userId, message: error?.message });
       return res.status(500).json({
         success: false,
         message: "Error updating user role",
@@ -54,6 +74,19 @@ class UserController {
 
       // Prevent users from deleting themselves
       if (req.user.id == userId) {
+        // Audit self-delete attempt
+        try {
+          auditLogger.info('user.delete.attempt', {
+            requestId: req.requestId,
+            user: getAuditUser(req),
+            target_table: 'Users',
+            target_id: Number(userId) || 0,
+            targetUserId: userId,
+            reason: 'attempted_self_delete',
+          });
+        } catch (e) {
+          console.error('Audit log (user.delete.attempt blocked) failed:', e && e.message ? e.message : e);
+        }
         return res.status(400).json({
           success: false,
           message: "You cannot delete your own account",
@@ -74,10 +107,35 @@ class UserController {
       const [result] = await pool.execute(deleteQuery, [userId]);
 
       if (result.affectedRows === 0) {
+        // Audit: delete not found
+        try {
+          auditLogger.info('user.delete.not_found', {
+            requestId: req.requestId,
+            user: getAuditUser(req),
+            target_table: 'Users',
+            target_id: Number(userId) || 0,
+            targetUserId: userId,
+          });
+        } catch (e) {
+          console.error('Audit log (user.delete.not_found) failed:', e && e.message ? e.message : e);
+        }
         return res.status(404).json({
           success: false,
           message: "User not found",
         });
+      }
+
+      // Audit successful deletion
+      try {
+        auditLogger.info('user.delete', {
+          requestId: req.requestId,
+          user: getAuditUser(req),
+          target_table: 'Users',
+          target_id: Number(userId) || 0,
+          targetUserId: userId,
+        });
+      } catch (e) {
+        console.error('Audit log (user.delete) failed:', e && e.message ? e.message : e);
       }
 
       return res.status(200).json({
@@ -99,7 +157,29 @@ class UserController {
       const user = await User.findById(req.user.id);
 
       if (!user) {
+        // Audit profile not found
+        try {
+          auditLogger.info('user.getProfile', {
+            requestId: req.requestId,
+            user: getAuditUser(req),
+            targetUserId: req.user?.id || 0,
+            query: req.query || {},
+          });
+        } catch (e) {
+          console.error('Audit log (user.getProfile not found) failed:', e && e.message ? e.message : e);
+        }
         return res.status(404).json({ error: "User not found" });
+      }
+      // Audit profile fetch
+      try {
+        auditLogger.info('user.getProfile', {
+          requestId: req.requestId,
+          user: getAuditUser(req),
+          targetUserId: user.id || user.user_id || 0,
+          query: req.query || {},
+        });
+      } catch (e) {
+        console.error('Audit log (user.getProfile) failed:', e && e.message ? e.message : e);
       }
       res.json({ user });
     } catch (error) {
@@ -182,6 +262,24 @@ class UserController {
       const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 
         ? Number(pageQ) 
         : Math.floor(offset / size) + 1;
+
+      // Audit the users list
+      try {
+        const actor = getAuditUser(req);
+        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        auditLogger.info('user.getAll', {
+          requestId: req.requestId,
+          user: actor,
+          actor,
+          filters: { role: roleFilter },
+          query: req.query || {},
+          target_table: 'Users',
+          target_id: actor.id || 0,
+          action_time: now,
+        });
+      } catch (e) {
+        console.error('Audit log (user.getAll) failed:', e && e.message ? e.message : e);
+      }
 
       res.status(200).json({
         success: true,
