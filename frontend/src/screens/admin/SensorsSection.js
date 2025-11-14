@@ -219,6 +219,7 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
         endTime: end.toISOString(),
         limit: String(1000),
       });
+      
       await Promise.all(
         sensorsForObs.map(async (s) => {
           try {
@@ -238,9 +239,18 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
               }))
               .filter((r) => !isNaN(new Date(r.readingTime).getTime()) && !isNaN(r.readingValue));
             list.sort((a, b) => new Date(a.readingTime) - new Date(b.readingTime));
-            setSensorSeriesBySensor((prev) => ({ ...prev, [s.sensorId]: list }));
+            
+            // Only update if this sensor is NOT currently selected in the detail modal
+            const isDetailOpenForSensor = sensorDetailModalVisible && selectedSensor && selectedSensor.sensorId === s.sensorId;
+            if (!isDetailOpenForSensor) {
+              setSensorSeriesBySensor((prev) => ({ ...prev, [s.sensorId]: list }));
+            }
           } catch (e) {
-            setSensorSeriesBySensor((prev) => ({ ...prev, [s.sensorId]: [] }));
+            // Only update if this sensor is NOT currently selected in the detail modal
+            const isDetailOpenForSensor = sensorDetailModalVisible && selectedSensor && selectedSensor.sensorId === s.sensorId;
+            if (!isDetailOpenForSensor) {
+              setSensorSeriesBySensor((prev) => ({ ...prev, [s.sensorId]: [] }));
+            }
           }
         })
       );
@@ -294,6 +304,21 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
     } catch (e) {
       console.error(`Error fetching detail data for sensor ${sensorId}:`, e);
       return [];
+    }
+  };
+
+  // Function to refresh detail sensor data with current time range
+  const refreshDetailSensorData = async () => {
+    if (!selectedSensor || !sensorDetailModalVisible) return;
+    
+    try {
+      const detailData = await fetchSensorReadingsForDetail(selectedSensor.sensorId, chartRange);
+      setSensorSeriesBySensor(prev => ({
+        ...prev,
+        [selectedSensor.sensorId]: detailData
+      }));
+    } catch (error) {
+      console.error('Error refreshing detail sensor data:', error);
     }
   };
 
@@ -364,9 +389,10 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
                   chartRange === opt.key && styles.segmentButtonActive
                 ]}
                 onPress={() => {
-                  setChartRange(opt.key);
+                  const newRange = opt.key;
+                  setChartRange(newRange);
                   if (selectedSensor) {
-                    fetchSensorReadingsForDetail(selectedSensor.sensorId, opt.key)
+                    fetchSensorReadingsForDetail(selectedSensor.sensorId, newRange)
                       .then(data => {
                         setSensorSeriesBySensor(prev => ({
                           ...prev,
@@ -756,21 +782,35 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
     }));
   };
 
-  // Auto-refresh sensor readings every 1 second when enabled and modal is open
+  // Auto-refresh sensor readings every 1 second when enabled
   useEffect(() => {
     let interval;
-    const shouldRun = sensorsObsModalVisible && autoRefreshSensors && selectedObservationSensors && selectedObservationSensors.length > 0;
+    const shouldRun = autoRefreshSensors && selectedObservationSensors && selectedObservationSensors.length > 0;
+    
     if (shouldRun) {
-      // Immediate refresh - grid always uses 24h
-      fetchSensorReadingsForGrid(selectedObservationSensors);
-      interval = setInterval(() => {
-        fetchSensorReadingsForGrid(selectedObservationSensors);
-      }, 1000);
+      const refreshData = async () => {
+        if (sensorsObsModalVisible) {
+          // Refresh grid data (always 24h)
+          await fetchSensorReadingsForGrid(selectedObservationSensors);
+        }
+        
+        // Always refresh detail data if detail modal is open, using current time range
+        if (sensorDetailModalVisible && selectedSensor) {
+          await refreshDetailSensorData();
+        }
+      };
+
+      // Immediate refresh
+      refreshData();
+      
+      // Set up interval
+      interval = setInterval(refreshData, 1000);
     }
+    
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [sensorsObsModalVisible, autoRefreshSensors, selectedObservationSensors]);
+  }, [sensorsObsModalVisible, autoRefreshSensors, selectedObservationSensors, sensorDetailModalVisible, selectedSensor, chartRange]);
 
   const getStatusColor = (status) => {
     const map = {
@@ -1109,14 +1149,6 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
                     <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedSensorsObservation.status) }]}> 
                       <Text style={styles.statusText}>{(selectedSensorsObservation.status || 'unknown').toUpperCase()}</Text>
                     </View>
-                  </View>
-
-                  <View style={styles.infoBox}>
-                    <Ionicons name="information-circle-outline" size={18} color="#2E7D32" />
-                    <Text style={styles.infoText}>
-                      Tap on any sensor to view detailed readings and information. Grid shows last 24 hours.
-                      {modalSearchQuery && ` Showing ${getFilteredModalSensors.length} of ${selectedObservationSensors.length} sensors`}
-                    </Text>
                   </View>
 
                   {/* Search Results Info */}
