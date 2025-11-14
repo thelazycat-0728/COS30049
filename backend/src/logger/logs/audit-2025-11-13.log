@@ -1,0 +1,1 @@
+{"timestamp":"2025-11-13 22:13:48","level":"info","message":"auth.login.attempt","requestId":"342620d5-fffd-42f9-a582-96557891156c","username":"unknown","ip":"::ffff:192.168.0.252","target_table":"Users","target_id":0,"action_time":"2025-11-13 14:13:48"}
