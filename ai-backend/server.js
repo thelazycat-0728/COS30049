@@ -24,10 +24,10 @@ const DATASET_DIR = path.join(__dirname, './New_Dataset');
 const PYTHON_SCRIPT = path.join(__dirname, 'train.py');
 
 const db = mysql.createPool({
-  host: 'srv1758.hstgr.io',
-  user: 'u149795069_user',
-  password: 'Smartestplant123',
-  database: 'u149795069_smartplant'
+  host: 'https://cos30049-smartplantapp.duckdns.org',
+  user: 'root',
+  password: 'YourStrongPassword!',
+  database: 'COS30049_SMARTPLANT'
 });
 
 //Training state
@@ -75,54 +75,12 @@ app.get('/health', (req, res) => {
 // ============================================
 // TRAINING MODEL SECTION
 // ============================================
+async function trainmodel(modelName, epochs, batchSize, learningRate, userID, isAuto){
 
-//Start training
-app.post('/api/train', async (req, res) => {
-  try {
-    if (trainingStatus.isTraining) {
-      return res.status(409).json({
-        success: false,
-        error: 'Training already in progress',
-        message: 'Training already in progress',
-        currentStatus: trainingStatus
-      });
-    }
-
-    const {
-      datasetPath = DATASET_DIR,
-      epochs = 30,
-      batchSize = 32,
-      learningRate = 0.00001,
-      modelName = `model_${Date.now()}`,
-      userID = 'manual'
-    } = req.body;
-    
-    // Sanitize model name: trim spaces and remove invalid characters
-    const sanitizedModelName = modelName.trim().replace(/[<>:"/\\|?*]/g, '_');
-    
-    if (!sanitizedModelName) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid model name'
-      });
-    }
-    
-    let actualModelName = sanitizedModelName;
-    console.log('Starting training:', { actualModelName, epochs, batchSize, learningRate });
-
-    //Validate Python script exists
-    if (!fsSync.existsSync(PYTHON_SCRIPT)) {
-      return res.status(500).json({
-        success: false,
-        error: 'Training script not found',
-        path: PYTHON_SCRIPT
-      });
-    }
-
-    //Reset training status
+  //Reset training status
     trainingStatus = {
       isTraining: true,
-      modelName: actualModelName,
+      modelName: modelName,
       progress: 0,
       epoch: 0,
       totalEpochs: epochs,
@@ -133,17 +91,24 @@ app.post('/api/train', async (req, res) => {
       error: null
     };
 
-    //Start training process
-    trainingProcess = spawn('python', [
+    const args = [
       PYTHON_SCRIPT,
-      '--data-dir', datasetPath,
+      '--data-dir', DATASET_DIR,
       '--epochs', epochs.toString(),
       '--batch-size', batchSize.toString(),
       '--learning-rate', learningRate.toString(),
-      '--model-name', actualModelName,
+      '--model-name', modelName,
       '--output-dir', MODELS_DIR,
-      '--triggered-by', userID.toString()
-    ]);
+    ];
+
+    if (!isAuto){
+      args.push('--triggered-by', userID.toString());
+    }
+    
+    //Start training process
+    trainingProcess = spawn('python', args);
+
+    let actualModelName = modelName;
 
     //Capture stdout
     trainingProcess.stdout.on('data', async (data) => {
@@ -161,47 +126,72 @@ app.post('/api/train', async (req, res) => {
             actualModelName = jsonData.model_name;
             trainingProcess.actualModelName = actualModelName;
             trainingStatus.modelName = actualModelName;
-            
-            console.log('STORED actualModelName:', trainingProcess.actualModelName);
-            
-            return;
+            if (isAuto){
+              console.log('[Auto-Retrain] Model folder created:', actualModelName);
+            } else {
+              console.log('Model folder created:', actualModelName);
+            }
           }
         } catch (err) {
           parseTrainingOutput(line);
         }
       }
     });
-
-
     //Capture stderr
     trainingProcess.stderr.on('data', (data) => {
       const error = data.toString();
-      console.error('Training error:', error);
+      if (isAuto){
+        console.error('[Auto-Retrain] Error:', error);
+      } else {
+        console.error('Training error:', error);
+      }
       trainingStatus.error = error;
     });
 
     //Handle process completion
     trainingProcess.on('close', async (code) => {
-      console.log(`Training process exited with code ${code}`);
+      if (isAuto) {
+        console.log(`[Auto-Retrain] Process exited with code ${code}`);
+      } else {
+        console.log(`Training process exited with code ${code}`);
+      }
       trainingStatus.isTraining = false;
-
       let newStatus = 'failed';
       
 
       if (code === 0) {
         trainingStatus.progress = 100;
-        console.log('Training completed successfully');
-        newStatus = 'completed';
+        if (isAuto) {
+          console.log('[Auto-Retrain] Training completed successfully');
+          newStatus = 'completed';
+
+          // Wait for database update
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await autoActivate(actualModelName);
+          await resetRetrainStats();
+        } else {
+          console.log('Training completed successfully');
+          newStatus = 'completed';
+        }
 
       } else if (code == null) {
         trainingStatus.error = 'Training stopped by admin';
-        console.log('Training stopped by admin');
+        if (isAuto) {
+          console.log('[Auto-Retrain] Training stopped by admin');
+        } else {
+          console.log('Training stopped by admin');
+        }
         newStatus = 'failed';
       } else {
         trainingStatus.error = `Training failed with exit code ${code}`;
-        console.error('Training failed');
+        if (isAuto) {
+          console.error('[Auto-Retrain] Training failed');
+        } else {
+          console.error('Training failed');
+        }
+
         newStatus = 'failed';
-        
+
 
         if (actualModelName){
           const modelDir = path.join(MODELS_DIR, actualModelName);
@@ -231,6 +221,53 @@ app.post('/api/train', async (req, res) => {
 
       }
     });
+};
+
+
+
+//Start training
+app.post('/api/train', async (req, res) => {
+  try {
+    if (trainingStatus.isTraining) {
+      return res.status(409).json({
+        success: false,
+        error: 'Training already in progress',
+        message: 'Training already in progress',
+        currentStatus: trainingStatus
+      });
+    }
+
+    const {
+      epochs = 30,
+      batchSize = 32,
+      learningRate = 0.00001,
+      modelName = `model_${Date.now()}`,
+      userID = ''
+    } = req.body;
+    
+    // Sanitize model name: trim spaces and remove invalid characters
+    const sanitizedModelName = modelName.trim().replace(/[<>:"/\\|?*]/g, '_');
+    
+    if (!sanitizedModelName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid model name'
+      });
+    }
+    
+    let actualModelName = sanitizedModelName;
+    console.log('Starting training:', { actualModelName, epochs, batchSize, learningRate });
+
+    //Validate Python script exists
+    if (!fsSync.existsSync(PYTHON_SCRIPT)) {
+      return res.status(500).json({
+        success: false,
+        error: 'Training script not found',
+        path: PYTHON_SCRIPT
+      });
+    }
+
+    await trainmodel(actualModelName, epochs, batchSize, learningRate, userID, false);
 
     res.json({
       success: true,
@@ -274,7 +311,7 @@ app.post('/api/train/stop', async (req, res) => {
 
     const modelToDelete = trainingProcess?.actualModelName || trainingStatus.modelName;
 
-    // 1️.Stop the Python training process
+    // 1.Stop the Python training process
     if (trainingProcess) {
       trainingProcess.kill('SIGTERM');
       trainingProcess = null;
@@ -283,7 +320,7 @@ app.post('/api/train/stop', async (req, res) => {
       console.log('Training stopped by user');
     }
 
-    // 2️.Delete incomplete model locally
+    // 2.Delete incomplete model locally
     if (modelToDelete) {
       const modelDir = path.join(MODELS_DIR, modelToDelete);
       
@@ -299,7 +336,7 @@ app.post('/api/train/stop', async (req, res) => {
       }
     }
 
-    // 3️⃣ Return response
+    // 3.Return response
     res.json({
       success: true,
       message: 'Training stopped and incomplete model deleted',
@@ -314,6 +351,18 @@ app.post('/api/train/stop', async (req, res) => {
     });
   }
 });
+
+// Get current active model name
+async function getActiveModelName() {
+  try {
+    const activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
+    return activeModel.trim();
+  } catch (error) {
+    console.log('No active model found');
+    return null;
+  }
+}
+
 
 // Get list of models (with pagination, filtering, sorting)
 app.get('/api/models', async (req, res) => {
@@ -375,13 +424,8 @@ app.get('/api/models', async (req, res) => {
 
     // Get active model
     let activeModel = null;
-    try {
-      activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
-      activeModel = activeModel.trim();
-      console.log('Active model:', activeModel);
-    } catch (error) {
-      console.log('No active model set');
-    }
+   
+    activeModel = await getActiveModelName();
 
     // Get model details for all models
     let allModels = await Promise.all(
@@ -392,7 +436,6 @@ app.get('/api/models', async (req, res) => {
         // Check for model files in directory
         const dirFiles = await fs.readdir(dirPath);
         const hasBestModel = dirFiles.includes('best_model.pth');
-        const hasFinalModel = dirFiles.includes('mobilenetv2_final.pth');
         const hasLabelMap = dirFiles.includes('label_map.json');
         
         // Get total size
@@ -410,7 +453,6 @@ app.get('/api/models', async (req, res) => {
           active: activeModel === dir.name,
           path: dirPath,
           hasBestModel,
-          hasFinalModel,
           hasLabelMap,
           trainedBy: trainedByMap.hasOwnProperty(dir.name)
             ? trainedByMap[dir.name] || 'Automated Retrain'
@@ -539,13 +581,8 @@ app.delete('/api/models/:modelName', async (req, res) => {
 
     // Check if it's the active model (unless force delete)
     let activeModel = null;
-    try {
-      activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
-      activeModel = activeModel.trim();
-      console.log(`Active model: ${activeModel}`);
-    } catch (error) {
-      console.log('No active model set');
-    }
+    
+    activeModel = await getActiveModelName();
 
     if (activeModel === modelName && !forceDelete) { 
       return res.status(400).json({
@@ -686,11 +723,10 @@ app.post('/api/classify', upload.single('image'), async (req, res) => {
 
     // Check if there's an active model
     let activeModel = null;
-    try {
-      activeModel = await fs.readFile(ACTIVE_MODEL_PATH, 'utf-8');
-      activeModel = activeModel.trim();
-      console.log('Using active model:', activeModel);
-    } catch (error) {
+  
+    activeModel = await getActiveModelName(); 
+    console.log('Using active model:', activeModel);
+    if (activeModel == null){
       return res.status(400).json({
         success: false,
         error: 'No active model available. Please activate a model first.'
@@ -891,36 +927,9 @@ app.patch('/api/dataset/folder', async (req, res) => {
   }
 });
 
-
 // ============================================
-// HELPER FUNCTIONS
+// EXPERT VERIFIED IMAGE
 // ============================================
-
-function parseTrainingOutput(output) {
-  const epochMatch = output.match(/Epoch[:\s]+(\d+)[\/\s]+(\d+)/i);
-  if (epochMatch) {
-    trainingStatus.epoch = parseInt(epochMatch[1]);
-    trainingStatus.totalEpochs = parseInt(epochMatch[2]);
-    trainingStatus.progress = (trainingStatus.epoch / trainingStatus.totalEpochs) * 100;
-  }
-
-  if (output.includes('Stage 1') || output.includes('classifier head')) {
-    trainingStatus.stage = 'stage1';
-  }
-  if (output.includes('Stage 2') || output.includes('Fine-tuning')) {
-    trainingStatus.stage = 'stage2';
-  }
-
-  const lossMatch = output.match(/Loss[:\s]+([\d.]+)/i);
-  if (lossMatch) {
-    trainingStatus.loss = parseFloat(lossMatch[1]);
-  }
-
-  const accMatch = output.match(/Acc(?:uracy)?[:\s]+([\d.]+)/i);
-  if (accMatch) {
-    trainingStatus.accuracy = parseFloat(accMatch[1]);
-  }
-}
 
 // Receive verified observation image for training dataset
 app.post('/api/training/add-image', upload.single('image'), async (req, res) => {
@@ -1061,6 +1070,105 @@ async function checkRetrainThreshold() {
   }
 }
 
+// Get validation accuracy from database for modelName
+async function getModelValidationAccuracy(modelName) {
+  try {
+    const [rows] = await db.query(`
+      SELECT validation_accuracy 
+      FROM training_history 
+      WHERE model_version = ? AND status = 'completed'
+      LIMIT 1
+    `, [modelName]);
+    
+    if (rows && rows.length > 0) {
+      const accuracy = parseFloat(rows[0].validation_accuracy);
+      console.log(`[Auto-Retrain] Model "${modelName}" validation accuracy: ${accuracy}%`);
+      return accuracy;
+    }
+    
+    console.log(`[Auto-Retrain] No validation accuracy found for model "${modelName}"`);
+    return null;
+    
+  } catch (error) {
+    console.error('[Auto-Retrain] Error getting model accuracy:', error);
+    return null;
+  }
+}
+
+// Auto-activate model if it's better than current active model
+async function autoActivate(newModelName) {
+  try {
+    console.log('\n[Auto-Retrain] Checking if new model should be activated...');
+    
+    // Get new model's validation accuracy
+    const newModelAccuracy = await getModelValidationAccuracy(newModelName);
+    
+    if (newModelAccuracy === null) {
+      console.log('[Auto-Retrain] Cannot activate: New model accuracy not found in database');
+      return false;
+    }
+    
+    // Get current active model
+    const activeModelName = await getActiveModelName();
+    
+    if (!activeModelName) {
+      console.log('[Auto-Retrain] No active model. Activating new model by default...');
+      await activateModel(newModelName);
+      console.log(`[Auto-Retrain] Activated new model: ${newModelName}`);
+      return true;
+    }
+    
+    // Get active model's validation accuracy
+    const activeModelAccuracy = await getModelValidationAccuracy(activeModelName);
+    
+    if (activeModelAccuracy === null) {
+      console.log('[Auto-Retrain] Active model accuracy not found. Activating new model...');
+      await activateModel(newModelName);
+      console.log(`[Auto-Retrain] Activated new model: ${newModelName}`);
+      return true;
+    }
+    
+    // Compare accuracies
+    console.log('\n[Auto-Retrain] Accuracy Comparison:');
+    console.log(`  Current Active: ${activeModelName} = ${activeModelAccuracy}%`);
+    console.log(`  New Model:      ${newModelName} = ${newModelAccuracy}%`);
+    console.log(`  Difference:     ${(newModelAccuracy - activeModelAccuracy).toFixed(4)}%`);
+    
+    if (newModelAccuracy > activeModelAccuracy) {
+      console.log('\n[Auto-Retrain] New model is better, Activating');
+      await activateModel(newModelName);
+      console.log(`[Auto-Retrain] Successfully activated: ${newModelName}`);
+      return true;
+    } else {
+      console.log('\n[Auto-Retrain] New model is not better than current active model');
+      console.log(`[Auto-Retrain] Keeping active model: ${activeModelName}`);
+      return false;
+    }
+    
+  } catch (error) {
+    console.error('[Auto-Retrain] Error in auto-activation:', error);
+    return false;
+  }
+}
+
+// Helper function to activate a model
+async function activateModel(modelName) {
+  const modelDir = path.join(MODELS_DIR, modelName);
+  
+  // Verify model exists and has required files
+  const dirFiles = await fs.readdir(modelDir);
+  const hasBestModel = dirFiles.includes('best_model.pth');
+  const hasLabelMap = dirFiles.includes('label_map.json');
+  
+  if (!hasBestModel || !hasLabelMap) {
+    throw new Error('Model is incomplete. Missing required files');
+  }
+  
+  // Write to active_model.txt
+  await fs.writeFile(ACTIVE_MODEL_PATH, modelName, 'utf-8');
+  console.log(`[Auto-Retrain] Model activated: ${modelName}`);
+}
+
 // Trigger automatic retraining
 async function triggerAutoRetrain() {
   try {
@@ -1068,115 +1176,10 @@ async function triggerAutoRetrain() {
     
     // Generate model name with timestamp
     const modelName = `auto_retrain_${Date.now()}`;
-    const epochs = 30;
+    const epochs = 1;
     const batchSize = 32;
     const learningRate = 0.00001;
-    
-    // Reset training status
-    trainingStatus = {
-      isTraining: true,
-      modelName: modelName,
-      progress: 0,
-      epoch: 0,
-      totalEpochs: epochs,
-      loss: null,
-      accuracy: null,
-      stage: 'stage1',
-      startTime: new Date(),
-      error: null
-    };
-    
-    // Start training process
-    trainingProcess = spawn('python', [
-      PYTHON_SCRIPT,
-      '--data-dir', DATASET_DIR,
-      '--epochs', epochs.toString(),
-      '--batch-size', batchSize.toString(),
-      '--learning-rate', learningRate.toString(),
-      '--model-name', modelName,
-      '--output-dir', MODELS_DIR,    
-    ]);
-
-    let actualModelName = modelName;
-    
-    // Capture stdout
-    trainingProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      console.log(output);
-      const lines = output.split('\n').filter(line => line.trim());
-      
-      for (const line of lines) {
-        try {
-          const jsonData = JSON.parse(line);
-          if (jsonData.event === "model_folder_created") {
-            actualModelName = jsonData.model_name;
-            trainingProcess.actualModelName = actualModelName;
-            trainingStatus.modelName = actualModelName;
-            console.log('[Auto-Retrain] Model folder created:', actualModelName);
-          }
-        } catch (err) {
-          parseTrainingOutput(line);
-        }
-      }
-    });
-    
-    // Capture stderr
-    trainingProcess.stderr.on('data', (data) => {
-      const error = data.toString();
-      console.error('[Auto-Retrain] Error:', error);
-      trainingStatus.error = error;
-    });
-    
-    // Handle process completion
-    trainingProcess.on('close', async (code) => {
-      console.log(`[Auto-Retrain] Process exited with code ${code}`);
-      trainingStatus.isTraining = false;
-      
-       if (code === 0) {
-        trainingStatus.progress = 100;
-        console.log('[Auto-Retrain] Training completed successfully');
-        newStatus = 'completed';
-        await resetRetrainStats();
-        // await autoActivateModel(actualModelName);
-
-      } else if (code == null) {
-        trainingStatus.error = 'Training stopped by admin';
-        console.log('[Auto-Retrain] Training stopped by admin');
-        newStatus = 'failed';
-      } else {
-        trainingStatus.error = `Training failed with exit code ${code}`;
-        console.error('[Auto-Retrain] Training failed');
-        newStatus = 'failed';
-
-        // Clean up failed model
-        if (actualModelName) {
-          const modelDir = path.join(MODELS_DIR, actualModelName);
-          try {
-            if (fsSync.existsSync(modelDir)) {
-              await fs.rm(modelDir, { recursive: true, force: true });
-              console.log(`[Auto-Retrain] Cleaned up failed model: ${actualModelName}`);
-            }
-          } catch (err) {
-            console.error('[Auto-Retrain] Failed to clean up:', err.message);
-          }
-        }
-      }
-
-      try {
-          if (actualModelName){
-            await db.execute(
-            `UPDATE training_history 
-            SET status = ?, error_message = ?
-            WHERE model_version = ? AND status = 'in_progress'`,
-            [newStatus, trainingStatus.error ,actualModelName]
-            );
-            console.log(`Database updated: ${actualModelName} → ${newStatus}`);
-          }
-        }catch (dbErr) {
-          console.error('Failed to update training status in database:', dbErr.message);
-
-        }
-    });
+    await trainmodel(modelName, epochs, batchSize, learningRate, null, true);
     return true;
     
   } catch (error) {
@@ -1187,16 +1190,13 @@ async function triggerAutoRetrain() {
   }
 }
 
-
 // Reset retrain stats after successful training
-
 async function resetRetrainStats() {
   try {
     await db.query(`
       UPDATE retrain_stats 
-      SET retrain_accuracy = 0.0000,
-          rejected_count = 0,
-          last_retrain_date = NOW()
+      SET retrain_accuracy = 1.00,
+          rejected_count = 0
       WHERE id = 1
     `);
     console.log('[Auto-Retrain] Stats reset successfully');
@@ -1207,7 +1207,6 @@ async function resetRetrainStats() {
 
 
 // Main auto-retrain check job
-
 async function autoRetrainJob() {
   console.log('\n' + '='.repeat(60));
   console.log(`[Auto-Retrain] Running check at ${new Date().toISOString()}`);
@@ -1219,6 +1218,36 @@ async function autoRetrainJob() {
     await triggerAutoRetrain();
   } else {
     console.log('[Auto-Retrain] No action needed\n');
+  }
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function parseTrainingOutput(output) {
+  const epochMatch = output.match(/Epoch[:\s]+(\d+)[\/\s]+(\d+)/i);
+  if (epochMatch) {
+    trainingStatus.epoch = parseInt(epochMatch[1]);
+    trainingStatus.totalEpochs = parseInt(epochMatch[2]);
+    trainingStatus.progress = (trainingStatus.epoch / trainingStatus.totalEpochs) * 100;
+  }
+
+  if (output.includes('Stage 1') || output.includes('classifier head')) {
+    trainingStatus.stage = 'stage1';
+  }
+  if (output.includes('Stage 2') || output.includes('Fine-tuning')) {
+    trainingStatus.stage = 'stage2';
+  }
+
+  const lossMatch = output.match(/Loss[:\s]+([\d.]+)/i);
+  if (lossMatch) {
+    trainingStatus.loss = parseFloat(lossMatch[1]);
+  }
+
+  const accMatch = output.match(/Acc(?:uracy)?[:\s]+([\d.]+)/i);
+  if (accMatch) {
+    trainingStatus.accuracy = parseFloat(accMatch[1]);
   }
 }
 
@@ -1238,8 +1267,8 @@ app.listen(PORT, () => {
     await autoRetrainJob();
   }, 5000); // Wait 5 seconds for server to fully start
 
-  //const job = schedule.scheduleJob('*/10 * * * *', autoRetrainJob); // Every 10 minutes
-  const job = schedule.scheduleJob('*/1 * * * *', autoRetrainJob); // Every 10 minutes
+  const job = schedule.scheduleJob('*/10 * * * *', autoRetrainJob); // Every 10 minutes
+  //const job = schedule.scheduleJob('*/1 * * * *', autoRetrainJob); // Every 1 minutes for testing
   console.log('Auto-retrain scheduler initialized (checks every 10 minutes)');
   console.log('');
 });
