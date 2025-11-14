@@ -24,7 +24,7 @@ const DATASET_DIR = path.join(__dirname, './New_Dataset');
 const PYTHON_SCRIPT = path.join(__dirname, 'train.py');
 
 const db = mysql.createPool({
-  host: 'https://cos30049-smartplantapp.duckdns.org',
+  host: 'cos30049-smartplantapp.duckdns.org',
   user: 'root',
   password: 'YourStrongPassword!',
   database: 'COS30049_SMARTPLANT'
@@ -1272,3 +1272,4 @@ app.listen(PORT, () => {
   console.log('Auto-retrain scheduler initialized (checks every 10 minutes)');
   console.log('');
 });
+
