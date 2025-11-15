@@ -10,6 +10,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
+// Resolve image URL: accept absolute URLs and backend-relative paths like "/uploads/xyz.jpg"
+const resolveImageUrl = (url) => {
+  if (url) {
+    return url.startsWith('http') ? url : `${API_BASE}${url}`;
+  }
+};
+
 const PlantDetailScreen = ({ route }) => {
   const navigation = useNavigation();
   const { plant } = route.params || {};
@@ -329,7 +336,7 @@ const PlantDetailScreen = ({ route }) => {
         {/* Header with Plant Image and Gradient Overlay */}
         <View style={styles.headerContainer}>
           {display.imageUrl ? (
-            <Image source={{ uri: display.imageUrl }} style={styles.plantImage} />
+            <Image source={{ uri: resolveImageUrl(display.imageUrl) }} style={styles.plantImage} />
           ) : (
             <View style={[styles.plantImage, styles.placeholder]}>
               <FontAwesome5 name="leaf" size={50} color="#90EE90" />
@@ -509,7 +516,7 @@ const PlantDetailScreen = ({ route }) => {
                                 <View style={styles.imageContainer}>
                                   {selectedObservation.image_url ? (
                                     <Image 
-                                      source={{ uri: selectedObservation.image_url }} 
+                                      source={{ uri: resolveImageUrl(selectedObservation.image_url || selectedObservation.image) }} 
                                       style={styles.observationImage} 
                                     />
                                   ) : (
@@ -598,7 +605,7 @@ const PlantDetailScreen = ({ route }) => {
                           <View style={styles.listItemContent}>
                             {observation.image_url ? (
                               <Image 
-                                source={{ uri: observation.image_url }} 
+                                source={{ uri: resolveImageUrl(observation.image_url || observation.image) }} 
                                 style={styles.listThumb} 
                               />
                             ) : (
