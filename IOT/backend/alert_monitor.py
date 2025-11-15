@@ -29,7 +29,6 @@ DB_CONFIG = {
 # ========== MONITOR SETTINGS ==========
 SCAN_INTERVAL = 5  # seconds
 DEBOUNCE_MINUTES = 2
-MAX_MEMORY_AGE_HOURS = 24  # Clean up readings older than 24 hours
 MAX_RECONNECT_ATTEMPTS = 3
 RECONNECT_DELAY = 5  # seconds
 
@@ -201,39 +200,6 @@ def insert_alert(conn: mysql.connector.MySQLConnection, sensor_id: int, observat
         return False
 
 
-def cleanup_old_data():
-    """Clean up old readings and alert times from memory to prevent memory leaks."""
-    global last_readings, last_alert_time
-    
-    try:
-        current_time = datetime.now()
-        cutoff_time = current_time - timedelta(hours=MAX_MEMORY_AGE_HOURS)
-        
-        # Clean up old readings
-        sensors_to_remove = []
-        for sensor_id, reading_data in last_readings.items():
-            if reading_data.get('time', current_time) < cutoff_time:
-                sensors_to_remove.append(sensor_id)
-        
-        for sensor_id in sensors_to_remove:
-            del last_readings[sensor_id]
-        
-        # Clean up old alert times
-        alerts_to_remove = []
-        for key, alert_time in last_alert_time.items():
-            if alert_time < cutoff_time:
-                alerts_to_remove.append(key)
-        
-        for key in alerts_to_remove:
-            del last_alert_time[key]
-        
-        if sensors_to_remove or alerts_to_remove:
-            logger.info(f"Memory cleanup: removed {len(sensors_to_remove)} old readings and {len(alerts_to_remove)} old alert times")
-            
-    except Exception as e:
-        logger.error(f"Error during memory cleanup: {e}")
-
-
 def compute_composite_alert(conn, observation_id: int) -> bool:
     """
     Check recent sensor deltas in the same observation group and determine if
@@ -365,8 +331,6 @@ def main():
         logger.error("Failed to establish initial database connection. Exiting.")
         exit(1)
         
-    cleanup_counter = 0
-    CLEANUP_INTERVAL = 3600 // SCAN_INTERVAL  # Cleanup every hour
 
     try:
         while True:
@@ -393,11 +357,7 @@ def main():
                 else:
                     logger.debug("No new readings to process")
                 
-                # Periodic memory cleanup
-                cleanup_counter += 1
-                if cleanup_counter >= CLEANUP_INTERVAL:
-                    cleanup_old_data()
-                    cleanup_counter = 0
+                
                     
             except Exception as e:
                 logger.error(f"Error in main monitoring loop: {e}")

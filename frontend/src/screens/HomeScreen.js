@@ -78,6 +78,13 @@ const HomeScreen = () => {
     }
   }, [plants, loading]);
 
+  // Resolve image URL: accept absolute URLs and backend-relative paths like "/uploads/xyz.jpg"
+  const resolveImageUrl = (url) => {
+    if (url) {
+      return url.startsWith('http') ? url : `${API_BASE}${url}`;
+    }
+  };
+
   const getPlantData = async () => {
     try {
       setLoading(true);
@@ -165,9 +172,9 @@ const HomeScreen = () => {
         activeOpacity={0.7}
       >
         <View style={styles.imageContainer}>
-          <Image 
-            source={{ uri: item.image_url }} 
-            style={isGridLayout ? styles.plantImageGrid : styles.plantImageList} 
+          <Image
+            source={{ uri: resolveImageUrl(item.image_url || item.image) }}
+            style={isGridLayout ? styles.plantImageGrid : styles.plantImageList}
           />
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.1)']}
@@ -262,7 +269,7 @@ const HomeScreen = () => {
       
       {/* Header with Gradient */}
       <LinearGradient
-        colors={['#4CAF50', '#4CAF50']}
+        colors={['#2e7d32', '#2e7d32']}
         style={styles.header}
       >
         <View style={styles.headerContent}>

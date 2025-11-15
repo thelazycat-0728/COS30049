@@ -16,11 +16,18 @@ import {
   RefreshControl,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import MapView, { Marker, Heatmap } from "react-native-maps";
+import MapView, { Marker, Heatmap, PROVIDER_GOOGLE } from "react-native-maps";
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+
+// Resolve image URL: accept absolute URLs and backend-relative paths like "/uploads/xyz.jpg"
+const resolveImageUrl = (url) => {
+  if (url) {
+    return url.startsWith("http") ? url : `${API_BASE}${url}`;
+  }
+};
 
 const MapScreen = () => {
   const navigation = useNavigation();
@@ -59,20 +66,34 @@ const MapScreen = () => {
   });
   const [pinCoords, setPinCoords] = useState(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
-  const heatRadius = 40;
-  const heatOpacity = 0.7;
-  const heatGradient = {
-    colors: [
-      "rgba(79,195,247,0)",
-      "#29b6f6",
-      "#0288d1",
-      "#ef6c00",
-      "#d84315",
-      "#b71c1c",
-    ],
-    startPoints: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-    colorMapSize: 256,
-  };
+  const heatRadius = Platform.select({ ios: 120, android: 50, default: 50 });
+  const heatOpacity = Platform.select({ ios: 1, android: 0.85, default: 0.85 });
+  const heatGradient = Platform.select({
+    ios: {
+      colors: [
+        "rgba(79,195,247,0)",
+        "#29b6f6",
+        "#0288d1",
+        "#ef6c00",
+        "#d84315",
+        "#b71c1c",
+      ],
+      startPoints: [0.0, 0.05, 0.10, 0.20, 0.25, 1],
+      colorMapSize: 1024,
+    },
+    default: {
+      colors: [
+        "rgba(79,195,247,0)",
+        "#29b6f6",
+        "#0288d1",
+        "#ef6c00",
+        "#d84315",
+        "#b71c1c",
+      ],
+      startPoints: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+      colorMapSize: 256,
+    },
+  });
   const [densityPoints, setDensityPoints] = useState([]);
   const [densityMax, setDensityMax] = useState(1);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
@@ -182,6 +203,8 @@ const MapScreen = () => {
       if (!mapRegion) return;
       const params = new URLSearchParams();
       params.set("limit", "2000");
+      // Align heatmap with public-only markers
+      params.set("public", "1");
       const selFamiliesForHeat = Array.isArray(filterFamilies)
         ? filterFamilies.filter(Boolean)
         : [];
@@ -363,10 +386,12 @@ const MapScreen = () => {
     });
 
     if (!filtered.length || !Heatmap) return null;
+    const scale = Platform.select({ ios: 30, android: 10, default: 10 });
+    const max = Math.max(1, densityMax || 1);
     const points = filtered.map((p) => ({
       latitude: p.latitude,
       longitude: p.longitude,
-      weight: Math.max(1, p.observation_count),
+      weight: Math.max(1, Math.round((p.observation_count / max) * scale)),
     }));
     return (
       <Heatmap
@@ -692,6 +717,7 @@ const MapScreen = () => {
           <MapView
             ref={mapRef}
             style={styles.map}
+            provider={PROVIDER_GOOGLE}
             initialRegion={mapRegion}
             onRegionChangeComplete={(r) => {
               setMapRegion(r);
@@ -744,7 +770,7 @@ const MapScreen = () => {
                 />
               ))}
 
-            {pinCoords && (
+            {!showHeatmap && pinCoords && (
               <Marker
                 coordinate={pinCoords}
                 draggable
@@ -823,7 +849,7 @@ const MapScreen = () => {
                       {selectedPlant.image_url || selectedPlant.image ? (
                         <Image
                           source={{
-                            uri: selectedPlant.image_url || selectedPlant.image,
+                            uri: resolveImageUrl(selectedPlant.image_url || selectedPlant.image),
                           }}
                           style={styles.cardImage}
                         />
@@ -1260,7 +1286,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
     paddingVertical: 15,
     marginTop: 20,
   },

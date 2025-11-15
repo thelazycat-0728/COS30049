@@ -22,7 +22,7 @@ class TokenRefreshService {
     // Set interval for 15 minutes (900000 ms)
     this.refreshInterval = setInterval(() => {
       this.refreshToken();
-    }, 15 * 60 * 1000); // 15 minutes
+    }, 14 * 60 * 1000); // 15 minutes
   }
 
   /**
