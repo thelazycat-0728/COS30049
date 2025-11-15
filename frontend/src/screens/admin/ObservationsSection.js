@@ -19,6 +19,13 @@ import styles from './SectionStyles';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache, currentUserId }) => {
+  // Resolve image URL: accept absolute URLs and backend-relative paths like "/uploads/xyz.jpg"
+  const resolveImageUrl = (url) => {
+    if (url) {
+      return url.startsWith('http') ? url : `${API_URL}${url}`;
+    }
+  };
+
   const [observations, setObservations] = useState([]);
   const [obsLoading, setObsLoading] = useState(false);
   const [obsError, setObsError] = useState(null);
@@ -518,7 +525,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache,
                   </View>
 
                   {item.image_url ? (
-                    <Image source={{ uri: item.image_url }} style={styles.obsImage} />
+            <Image source={{ uri: resolveImageUrl(item.image_url || item.image) }} style={styles.obsImage} />
                   ) : null}
 
                   <View style={styles.obsMetaRow}>
@@ -634,7 +641,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache,
 
                   {/* Image */}
                   {obsDetail.image_url ? (
-                    <Image source={{ uri: obsDetail.image_url }} style={styles.obsImage} />
+            <Image source={{ uri: resolveImageUrl(obsDetail.image_url || obsDetail.image) }} style={styles.obsImage} />
                   ) : null}
 
                   {/* Meta */}
