@@ -5,6 +5,17 @@ const axios = require('axios');
 
 const AI_BACKEND_URL = process.env.AI_BACKEND_URL;
 
+// Resolve a deterministic, non-null user object for audit entries.
+// Returns { id, username, role }
+function getAuditUser(req) {
+  const user = req.user || {};
+  return {
+    id: user.id || user.userId || 0,
+    username: user.username || user.email || 'anonymous',
+    role: user.role || 'guest',
+  };
+}
+
 // Allowed conservation status values
 const CONSERVATION_STATUSES = [
   'least_concern',
@@ -93,6 +104,25 @@ class PlantController {
       // Derive page index if not provided
       const currentPage = Number.isFinite(Number(pageQ)) && Number(pageQ) > 0 ? Number(pageQ) : Math.floor(offset / size) + 1;
 
+      // Audit this GET list request
+      try {
+        const actor = getAuditUser(req);
+        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        auditLogger.info('plant.getAll', {
+          requestId: req.requestId,
+          user: actor,
+          actor,
+          // explicit target info for plant list
+          target_table: 'Plants',
+          target_id: 0,
+          pagination: { page: currentPage, size },
+          returned: rows.length,
+          action_time: now,
+        });
+      } catch (e) {
+        console.error('Audit log (plant.getAll) failed:', e && e.message ? e.message : e);
+      }
+      
       res.json({ 
         success: true, 
         plants: rows, 
@@ -114,8 +144,30 @@ class PlantController {
       const id = req.params.plant_id;
       const [rows] = await pool.execute('SELECT * FROM Plants WHERE plant_id = ?', [id]);
       if (!rows || rows.length === 0) {
+        // Audit not-found GET
+        try {
+          auditLogger.info('plant.getById', {
+            requestId: req.requestId,
+            user: getAuditUser(req),
+            plant_id: Number(id),
+          });
+        } catch (e) {
+          console.error('Audit log (plant.getById not found) failed:', e && e.message ? e.message : e);
+        }
+
         return res.status(404).json({ success: false, error: 'Plant not found' });
       }
+      // Audit successful GET by id
+      try {
+        auditLogger.info('plant.getById', {
+          requestId: req.requestId,
+          user: getAuditUser(req),
+          plant_id: Number(id),
+        });
+      } catch (e) {
+        console.error('Audit log (plant.getById) failed:', e && e.message ? e.message : e);
+      }
+      
       res.json({ success: true, plant: rows[0] });
     } catch (err) {
       console.error('Error fetching plant by id:', err);
@@ -234,6 +286,11 @@ class PlantController {
         plant_id: insertId,
         common_name,
         scientific_name,
+        species,
+        description,
+        family,
+        conservation_status,
+        imageUrl
       });
       res.status(201).json({ success: true, plant: rows[0] });
     } catch (err) {
@@ -272,7 +329,8 @@ class PlantController {
         return res.status(404).json({ success: false, error: 'Plant not found' });
       }
 
-      const oldName = existingRows[0].scientific_name;
+      const existing = existingRows[0];
+      const oldName = existing.scientific_name;
 
       // Validate required fields one at a time with user-friendly names
       if (common_name !== undefined && (!common_name || common_name.trim() === '')) {
@@ -298,6 +356,7 @@ class PlantController {
 
       const fields = [];
       const params = [];
+      const requestedFields = [];
       
       if (scientific_name !== undefined) { 
         fields.push('scientific_name = ?'); 
@@ -353,6 +412,14 @@ class PlantController {
         return res.status(400).json({ success: false, error: 'No fields to update' });
       }
 
+      // mark requested fields based on presence of body values in order to build audit diff later
+      if (scientific_name !== undefined) requestedFields.push('scientific_name');
+      if (species !== undefined) requestedFields.push('species');
+      if (common_name !== undefined) requestedFields.push('common_name');
+      if (family !== undefined) requestedFields.push('family');
+      if (description !== undefined) requestedFields.push('description');
+      if (conservation_status !== undefined) requestedFields.push('conservation_status');
+
       fields.push('updated_at = NOW()');
       const sql = `UPDATE Plants SET ${fields.join(', ')} WHERE plant_id = ?`;
       params.push(id);
@@ -376,11 +443,25 @@ class PlantController {
       }
       
       const [rows] = await pool.execute('SELECT * FROM Plants WHERE plant_id = ?', [id]);
+      const updated = rows[0];
+      
+      // Build a clear diff object for audit: { field: { before, after } }
+      const fieldsUpdated = {};
+      for (const fieldName of requestedFields) {
+        // Map logical field to DB column name (they are the same here)
+        const before = existing[fieldName];
+        const after = updated[fieldName];
+        // Only include if the value actually changed (loose comparison to allow null/'' differences)
+        if (String(before) !== String(after)) {
+          fieldsUpdated[fieldName] = { before: before === undefined ? null : before, after: after === undefined ? null : after };
+        }
+      }
+      
       auditLogger.info('plant.update', {
         requestId: req.requestId,
         user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
         plant_id: Number(id),
-        fieldsUpdated: fields.map(f => f.split('=')[0].trim()),
+        fieldsUpdated,
       });
       res.json({ success: true, plant: rows[0] });
     } catch (err) {
