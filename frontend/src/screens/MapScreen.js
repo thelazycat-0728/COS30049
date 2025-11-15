@@ -22,6 +22,13 @@ import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+// Resolve image URL: accept absolute URLs and backend-relative paths like "/uploads/xyz.jpg"
+const resolveImageUrl = (url) => {
+  if (url) {
+    return url.startsWith("http") ? url : `${API_BASE}${url}`;
+  }
+};
+
 const MapScreen = () => {
   const navigation = useNavigation();
   const [searchText, setSearchText] = useState("");
@@ -842,7 +849,7 @@ const MapScreen = () => {
                       {selectedPlant.image_url || selectedPlant.image ? (
                         <Image
                           source={{
-                            uri: selectedPlant.image_url || selectedPlant.image,
+                            uri: resolveImageUrl(selectedPlant.image_url || selectedPlant.image),
                           }}
                           style={styles.cardImage}
                         />

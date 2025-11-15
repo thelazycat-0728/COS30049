@@ -329,7 +329,8 @@ class PlantController {
         return res.status(404).json({ success: false, error: 'Plant not found' });
       }
 
-      const oldName = existingRows[0].scientific_name;
+      const existing = existingRows[0];
+      const oldName = existing.scientific_name;
 
       // Validate required fields one at a time with user-friendly names
       if (common_name !== undefined && (!common_name || common_name.trim() === '')) {
@@ -355,6 +356,7 @@ class PlantController {
 
       const fields = [];
       const params = [];
+      const requestedFields = [];
       
       if (scientific_name !== undefined) { 
         fields.push('scientific_name = ?'); 
@@ -441,6 +443,7 @@ class PlantController {
       }
       
       const [rows] = await pool.execute('SELECT * FROM Plants WHERE plant_id = ?', [id]);
+      const updated = rows[0];
       
       // Build a clear diff object for audit: { field: { before, after } }
       const fieldsUpdated = {};
@@ -458,7 +461,7 @@ class PlantController {
         requestId: req.requestId,
         user: req.user ? { id: req.user.id, username: req.user.username, role: req.user.role } : null,
         plant_id: Number(id),
-        fieldsUpdated: fields.map(f => f.split('=')[0].trim()),
+        fieldsUpdated,
       });
       res.json({ success: true, plant: rows[0] });
     } catch (err) {

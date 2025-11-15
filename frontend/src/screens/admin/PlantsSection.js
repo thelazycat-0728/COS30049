@@ -18,6 +18,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import styles from './SectionStyles';
 
 const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => {
+  // Resolve image URL: accept absolute URLs and backend-relative paths like "/uploads/xyz.jpg"
+  const resolveImageUrl = (url) => {
+    if (url) {
+      return url.startsWith('http') ? url : `${API_URL}${url}`;
+    }
+  };
+
   const [plants, setPlants] = useState([]);
   const [plantsPage, setPlantsPage] = useState(1);
   const PLANTS_PAGE_SIZE = 10;
@@ -439,7 +446,7 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
               <Text style={styles.plantFamily}>Family: {plant.family}</Text>
             ) : null}
             {plant.image_url ? (
-              <Image source={{ uri: plant.image_url }} style={styles.obsImage} />
+              <Image source={{ uri: resolveImageUrl(plant.image_url || plant.image) }} style={styles.obsImage} />
             ) : null}
             <Text style={styles.plantDescription}>{plant.description}</Text>
             <View style={styles.modelActions}>
@@ -586,7 +593,7 @@ const PlantsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) => 
               <Text style={styles.inputLabel}>Plant Image</Text>
               {(plantForm.imageAsset?.uri || plantForm.image_url) ? (
                 <Image
-                  source={{ uri: plantForm.imageAsset?.uri || plantForm.image_url }}
+                  source={{ uri: plantForm.imageAsset?.uri || resolveImageUrl(plantForm.image_url) }}
                   style={styles.obsImage}
                 />
               ) : (
