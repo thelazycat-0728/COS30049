@@ -14,6 +14,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  Dimensions,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import MapView, { Marker, Heatmap, PROVIDER_GOOGLE } from "react-native-maps";
@@ -1237,6 +1238,11 @@ const MapScreen = () => {
   );
 };
 
+// Device-based modal sizing to prevent overflow on small screens
+const SCREEN_HEIGHT = Dimensions.get("window").height;
+const MODAL_MAX_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.85);
+const MODAL_BODY_MAX_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.7);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1496,6 +1502,7 @@ const styles = StyleSheet.create({
   modalContent: {
     width: "100%",
     maxWidth: 640,
+    maxHeight: MODAL_MAX_HEIGHT,
     backgroundColor: "#ffffff",
     borderRadius: 8,
     overflow: "hidden",
@@ -1517,6 +1524,7 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     padding: 20,
+    maxHeight: MODAL_BODY_MAX_HEIGHT,
   },
   modalActions: {
     flexDirection: "row",
