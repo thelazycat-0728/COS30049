@@ -11,6 +11,7 @@ import {
   RefreshControl,
   Switch,
   FlatList,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import styles from './SectionStyles';
@@ -26,7 +27,8 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
   const [sensorsTotal, setSensorsTotal] = useState(0);
   const [sensorsByObservation, setSensorsByObservation] = useState({});
   const [sensorsObsList, setSensorsObsList] = useState([]);
-  const [sensorsObsModalVisible, setSensorsObsModalVisible] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [detailMode, setDetailMode] = useState(false);
   const [selectedSensorsObservation, setSelectedSensorsObservation] = useState(null);
   const [selectedObservationSensors, setSelectedObservationSensors] = useState([]);
   const [sensorSeriesBySensor, setSensorSeriesBySensor] = useState({});
@@ -35,7 +37,6 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
   const [autoRefreshSensors, setAutoRefreshSensors] = useState(false);
 
   // New states for grid layout and detail modal
-  const [sensorDetailModalVisible, setSensorDetailModalVisible] = useState(false);
   const [selectedSensor, setSelectedSensor] = useState(null);
 
   // Filter and search states
@@ -240,14 +241,14 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
               .filter((r) => !isNaN(new Date(r.readingTime).getTime()) && !isNaN(r.readingValue));
             list.sort((a, b) => new Date(a.readingTime) - new Date(b.readingTime));
             
-            // Only update if this sensor is NOT currently selected in the detail modal
-            const isDetailOpenForSensor = sensorDetailModalVisible && selectedSensor && selectedSensor.sensorId === s.sensorId;
+            // Only update if this sensor is NOT currently selected in detail mode
+            const isDetailOpenForSensor = detailMode && selectedSensor && selectedSensor.sensorId === s.sensorId;
             if (!isDetailOpenForSensor) {
               setSensorSeriesBySensor((prev) => ({ ...prev, [s.sensorId]: list }));
             }
           } catch (e) {
-            // Only update if this sensor is NOT currently selected in the detail modal
-            const isDetailOpenForSensor = sensorDetailModalVisible && selectedSensor && selectedSensor.sensorId === s.sensorId;
+            // Only update if this sensor is NOT currently selected in detail mode
+            const isDetailOpenForSensor = detailMode && selectedSensor && selectedSensor.sensorId === s.sensorId;
             if (!isDetailOpenForSensor) {
               setSensorSeriesBySensor((prev) => ({ ...prev, [s.sensorId]: [] }));
             }
@@ -309,7 +310,7 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
 
   // Function to refresh detail sensor data with current time range
   const refreshDetailSensorData = async () => {
-    if (!selectedSensor || !sensorDetailModalVisible) return;
+    if (!selectedSensor || !detailMode) return;
     
     try {
       const detailData = await fetchSensorReadingsForDetail(selectedSensor.sensorId, chartRange);
@@ -763,7 +764,8 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
     setSelectedSensorsObservation(obs);
     const sensorsForObs = sensorsByObservation[oid] || [];
     setSelectedObservationSensors(sensorsForObs);
-    setSensorsObsModalVisible(true);
+    setDetailMode(false);
+    setModalVisible(true);
     setModalSearchQuery(''); // Clear search when opening modal
     // Grid always uses 24h data
     await fetchSensorReadingsForGrid(sensorsForObs);
@@ -771,7 +773,8 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
 
   const openSensorDetailModal = async (sensor) => {
     setSelectedSensor(sensor);
-    setSensorDetailModalVisible(true);
+    setDetailMode(true);
+    setModalVisible(true);
     // Reset to 24h when opening detail modal
     setChartRange('24h');
     // Fetch initial data for detail chart (24h)
@@ -785,17 +788,16 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
   // Auto-refresh sensor readings every 1 second when enabled
   useEffect(() => {
     let interval;
-    const shouldRun = autoRefreshSensors && selectedObservationSensors && selectedObservationSensors.length > 0;
+    const shouldRun = autoRefreshSensors && modalVisible;
     
     if (shouldRun) {
       const refreshData = async () => {
-        if (sensorsObsModalVisible) {
-          // Refresh grid data (always 24h)
+        // Refresh grid data (always 24h) when in grid mode
+        if (!detailMode && selectedObservationSensors && selectedObservationSensors.length > 0) {
           await fetchSensorReadingsForGrid(selectedObservationSensors);
         }
-        
-        // Always refresh detail data if detail modal is open, using current time range
-        if (sensorDetailModalVisible && selectedSensor) {
+        // Refresh detail data when in detail mode
+        if (detailMode && selectedSensor) {
           await refreshDetailSensorData();
         }
       };
@@ -810,7 +812,7 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [sensorsObsModalVisible, autoRefreshSensors, selectedObservationSensors, sensorDetailModalVisible, selectedSensor, chartRange]);
+  }, [modalVisible, autoRefreshSensors, selectedObservationSensors, detailMode, selectedSensor, chartRange]);
 
   const getStatusColor = (status) => {
     const map = {
@@ -1088,178 +1090,173 @@ const SensorsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache }) =>
         )}
       </ScrollView>
 
-      {/* Observation Sensors Modal (Grid Layout) */}
+      {/* Unified Sensors Modal */}
       <Modal
-        visible={sensorsObsModalVisible}
+        visible={modalVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
+        presentationStyle="overFullScreen"
         onRequestClose={() => {
-          setSensorsObsModalVisible(false);
-          setModalSearchQuery(''); // Clear search when modal closes
+          setModalVisible(false);
+          setModalSearchQuery('');
+          setDetailMode(false);
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, detailMode && styles.detailModalContent]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sensors for Observation</Text>
-              <TouchableOpacity onPress={() => {
-                setSensorsObsModalVisible(false);
-                setModalSearchQuery('');
-              }}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            
-            {/* Auto Refresh Toggle */}
-            <View style={styles.autoRefreshRow}>
-              <View style={styles.autoRefreshLabel}>
-                <Ionicons name="refresh" size={18} color="#2e7d32" />
-                <Text style={styles.autoRefreshText}>Auto Refresh (1s)</Text>
-              </View>
-              <Switch value={autoRefreshSensors} onValueChange={setAutoRefreshSensors} />
-            </View>
-
-            {/* Modal Search Bar */}
-            <View style={styles.modalSearchContainer}>
-              <Ionicons name="search" size={20} color="#666" style={styles.modalSearchIcon} />
-              <TextInput
-                style={styles.modalSearchInput}
-                placeholder="Search sensors"
-                value={modalSearchQuery}
-                onChangeText={setModalSearchQuery}
-                clearButtonMode="while-editing"
-              />
-              {modalSearchQuery ? (
-                <TouchableOpacity onPress={clearModalSearch} style={styles.modalSearchClear}>
-                  <Ionicons name="close-circle" size={20} color="#666" />
+              <Text style={styles.modalTitle}>{detailMode ? 'Sensor Details' : 'Sensors for Observation'}</Text>
+              {detailMode ? (
+                <View style={{ flexDirection: 'row' }}>
+                  <TouchableOpacity onPress={() => setDetailMode(false)} style={{ marginRight: 12 }}>
+                    <Ionicons name="chevron-back" size={24} color="#333" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setModalVisible(false); setDetailMode(false); }}>
+                    <Ionicons name="close" size={24} color="#333" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity onPress={() => { setModalVisible(false); setModalSearchQuery(''); }}>
+                  <Ionicons name="close" size={24} color="#333" />
                 </TouchableOpacity>
-              ) : null}
+              )}
             </View>
 
-            <ScrollView style={styles.modalBodyScroll} contentContainerStyle={styles.modalBody}>
-              {selectedSensorsObservation ? (
-                <>
-                  <View style={styles.observationHeader}>
-                    <Text style={styles.inputLabel}>
-                      {plantCache[selectedSensorsObservation.plant_id]?.common_name || `Plant #${selectedSensorsObservation.plant_id}`}
-                    </Text>
-                    <Text style={styles.scientificName}>
-                      {plantCache[selectedSensorsObservation.plant_id]?.scientific_name || ''}
-                    </Text>
-                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedSensorsObservation.status) }]}> 
-                      <Text style={styles.statusText}>{(selectedSensorsObservation.status || 'unknown').toUpperCase()}</Text>
+            {detailMode ? (
+              <ScrollView style={styles.modalBodyScroll} contentContainerStyle={styles.modalBody}>
+                {selectedSensor ? (
+                  <View style={styles.sensorDetailCard}>
+                    <View style={styles.plantHeader}>
+                      <Text style={styles.plantName}>{selectedSensor.name}</Text>
+                      <View style={[styles.statusBadge, { backgroundColor: getSensorStatusColor(selectedSensor.status) }]}> 
+                        <Text style={styles.statusText}>{(selectedSensor.status || 'unknown').toUpperCase()}</Text>
+                      </View>
                     </View>
-                  </View>
-
-                  {/* Search Results Info */}
-                  {modalSearchQuery && (
-                    <View style={styles.searchResultsInfo}>
-                      <Text style={styles.searchResultsText}>
-                        Found {getFilteredModalSensors.length} sensor{getFilteredModalSensors.length !== 1 ? 's' : ''} matching "{modalSearchQuery}"
+                    
+                    <Text style={styles.scientificName}>Location: {selectedSensor.location || 'N/A'}</Text>
+                    
+                    {selectedSensor.lastChecked && (
+                      <Text style={styles.obsMetaText}>
+                        Last Checked: {new Date(selectedSensor.lastChecked).toLocaleString()}
                       </Text>
-                      <TouchableOpacity onPress={clearModalSearch} style={styles.clearSearchButton}>
-                        <Ionicons name="close" size={16} color="#666" />
-                        <Text style={styles.clearSearchText}>Clear</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                    )}
+                    
+                    <Text style={styles.obsMetaText}>Sensor ID: {selectedSensor.sensorId}</Text>
+                    <Text style={styles.obsMetaText}>
+                      Created: {new Date(selectedSensor.createdAt).toLocaleDateString()}
+                    </Text>
 
-                  {/* Sensors Grid using FlatList */}
-                  {getFilteredModalSensors.length > 0 ? (
-                    <FlatList
-                      data={getFilteredModalSensors}
-                      keyExtractor={(item) => item.sensorId}
-                      numColumns={2}
-                      renderItem={renderSensorGridItem}
-                      contentContainerStyle={styles.sensorsGridContainer}
-                      columnWrapperStyle={styles.columnWrapper}
-                      scrollEnabled={false}
-                      showsVerticalScrollIndicator={false}
-                    />
-                  ) : (
-                    <View style={styles.emptyState}>
-                      {modalSearchQuery ? (
-                        <>
-                          <Ionicons name="search-outline" size={48} color="#ccc" />
-                          <Text style={styles.emptyStateText}>No sensors found</Text>
-                          <Text style={styles.emptyStateSubtext}>
-                            No sensors match "{modalSearchQuery}". Try adjusting your search terms.
-                          </Text>
-                          <TouchableOpacity 
-                            style={[styles.viewDetailsButton, { marginTop: 12 }]}
-                            onPress={clearModalSearch}
-                          >
-                            <Text style={styles.viewDetailsText}>Clear Search</Text>
-                          </TouchableOpacity>
-                        </>
+                    <View style={styles.chartSection}>
+                      {(!sensorSeriesBySensor[selectedSensor.sensorId] && sensorSeriesLoading) ? (
+                        <View style={styles.placeholderBox}>
+                          <ActivityIndicator size="small" color="#2e7d32" />
+                          <Text style={{ marginTop: 8, color: '#666' }}>Loading readings...</Text>
+                        </View>
                       ) : (
-                        <>
-                          <Ionicons name="hardware-chip-outline" size={48} color="#ccc" />
-                          <Text style={styles.emptyStateText}>No sensors linked</Text>
-                          <Text style={styles.emptyStateSubtext}>This observation does not have any sensors</Text>
-                        </>
+                        renderSensorChart(sensorSeriesBySensor[selectedSensor.sensorId], chartRange)
                       )}
                     </View>
-                  )}
-                </>
-              ) : null}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Sensor Detail Modal */}
-      <Modal
-        visible={sensorDetailModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSensorDetailModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, styles.detailModalContent]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sensor Details</Text>
-              <TouchableOpacity onPress={() => setSensorDetailModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalBodyScroll} contentContainerStyle={styles.modalBody}>
-              {selectedSensor ? (
-                <View style={styles.sensorDetailCard}>
-                  <View style={styles.plantHeader}>
-                    <Text style={styles.plantName}>{selectedSensor.name}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: getSensorStatusColor(selectedSensor.status) }]}>
-                      <Text style={styles.statusText}>{(selectedSensor.status || 'unknown').toUpperCase()}</Text>
-                    </View>
                   </View>
-                  
-                  <Text style={styles.scientificName}>Location: {selectedSensor.location || 'N/A'}</Text>
-                  
-                  {selectedSensor.lastChecked && (
-                    <Text style={styles.obsMetaText}>
-                      Last Checked: {new Date(selectedSensor.lastChecked).toLocaleString()}
-                    </Text>
-                  )}
-                  
-                  <Text style={styles.obsMetaText}>Sensor ID: {selectedSensor.sensorId}</Text>
-                  <Text style={styles.obsMetaText}>
-                    Created: {new Date(selectedSensor.createdAt).toLocaleDateString()}
-                  </Text>
-
-                  <View style={styles.chartSection}>
-                    {(!sensorSeriesBySensor[selectedSensor.sensorId] && sensorSeriesLoading) ? (
-                      <View style={styles.placeholderBox}>
-                        <ActivityIndicator size="small" color="#2e7d32" />
-                        <Text style={{ marginTop: 8, color: '#666' }}>Loading readings...</Text>
-                      </View>
-                    ) : (
-                      renderSensorChart(sensorSeriesBySensor[selectedSensor.sensorId], chartRange)
-                    )}
+                ) : null}
+              </ScrollView>
+            ) : (
+              <>
+                {/* Auto Refresh Toggle */}
+                <View style={styles.autoRefreshRow}>
+                  <View style={styles.autoRefreshLabel}>
+                    <Ionicons name="refresh" size={18} color="#2e7d32" />
+                    <Text style={styles.autoRefreshText}>Auto Refresh (1s)</Text>
                   </View>
+                  <Switch value={autoRefreshSensors} onValueChange={setAutoRefreshSensors} />
                 </View>
-              ) : null}
-            </ScrollView>
+
+                {/* Modal Search Bar */}
+                <View style={styles.modalSearchContainer}>
+                  <Ionicons name="search" size={20} color="#666" style={styles.modalSearchIcon} />
+                  <TextInput
+                    style={styles.modalSearchInput}
+                    placeholder="Search sensors"
+                    value={modalSearchQuery}
+                    onChangeText={setModalSearchQuery}
+                    clearButtonMode="while-editing"
+                  />
+                  {modalSearchQuery ? (
+                    <TouchableOpacity onPress={clearModalSearch} style={styles.modalSearchClear}>
+                      <Ionicons name="close-circle" size={20} color="#666" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                <ScrollView style={styles.modalBodyScroll} contentContainerStyle={styles.modalBody}>
+                  {selectedSensorsObservation ? (
+                    <>
+                      <View style={styles.observationHeader}>
+                        <Text style={styles.inputLabel}>
+                          {plantCache[selectedSensorsObservation.plant_id]?.common_name || `Plant #${selectedSensorsObservation.plant_id}`}
+                        </Text>
+                        <Text style={styles.scientificName}>
+                          {plantCache[selectedSensorsObservation.plant_id]?.scientific_name || ''}
+                        </Text>
+                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedSensorsObservation.status) }]}> 
+                          <Text style={styles.statusText}>{(selectedSensorsObservation.status || 'unknown').toUpperCase()}</Text>
+                        </View>
+                      </View>
+
+                      {/* Search Results Info */}
+                      {modalSearchQuery && (
+                        <View style={styles.searchResultsInfo}>
+                          <Text style={styles.searchResultsText}>
+                            Found {getFilteredModalSensors.length} sensor{getFilteredModalSensors.length !== 1 ? 's' : ''} matching "{modalSearchQuery}"
+                          </Text>
+                          <TouchableOpacity onPress={clearModalSearch} style={styles.clearSearchButton}>
+                            <Ionicons name="close" size={16} color="#666" />
+                            <Text style={styles.clearSearchText}>Clear</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {/* Sensors Grid using FlatList */}
+                      {getFilteredModalSensors.length > 0 ? (
+                        <FlatList
+                          data={getFilteredModalSensors}
+                          keyExtractor={(item) => item.sensorId}
+                          numColumns={2}
+                          renderItem={renderSensorGridItem}
+                          contentContainerStyle={styles.sensorsGridContainer}
+                          columnWrapperStyle={styles.columnWrapper}
+                          scrollEnabled={false}
+                          showsVerticalScrollIndicator={false}
+                        />
+                      ) : (
+                        <View style={styles.emptyState}>
+                          {modalSearchQuery ? (
+                            <>
+                              <Ionicons name="search-outline" size={48} color="#ccc" />
+                              <Text style={styles.emptyStateText}>No sensors found</Text>
+                              <Text style={styles.emptyStateSubtext}>
+                                No sensors match "{modalSearchQuery}". Try adjusting your search terms.
+                              </Text>
+                              <TouchableOpacity 
+                                style={[styles.viewDetailsButton, { marginTop: 12 }]}
+                                onPress={clearModalSearch}
+                              >
+                                <Text style={styles.viewDetailsText}>Clear Search</Text>
+                              </TouchableOpacity>
+                            </>
+                          ) : (
+                            <>
+                              <Ionicons name="hardware-chip-outline" size={48} color="#ccc" />
+                              <Text style={styles.emptyStateText}>No sensors linked</Text>
+                              <Text style={styles.emptyStateSubtext}>This observation does not have any sensors</Text>
+                            </>
+                          )}
+                        </View>
+                      )}
+                    </>
+                  ) : null}
+                </ScrollView>
+              </>
+            )}
           </View>
         </View>
       </Modal>
