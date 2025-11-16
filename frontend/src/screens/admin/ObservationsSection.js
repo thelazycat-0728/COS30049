@@ -791,6 +791,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache,
                         </View>
                         {obsDetail.latitude != null && obsDetail.longitude != null ? (
                           <MapView
+                            key={`edit-map-has-${obsDetail?.observation_id ?? 'new'}`}
                             style={styles.map}
                             initialRegion={{
                               latitude: Number(obsDetail.latitude),
@@ -828,6 +829,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache,
                         ) : (
                           <View style={styles.noLocationMap}>
                             <MapView
+                              key={`edit-map-empty-${obsDetail?.observation_id ?? 'new'}`}
                               style={styles.map}
                               initialRegion={{
                                 latitude: 0,
@@ -841,12 +843,11 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache,
                                   setObsDetail((prev) => ({ ...prev, latitude, longitude }));
                                 }
                               }}
-                            >
-                              <View style={styles.mapHint}>
-                                <Ionicons name="hand-left-outline" size={32} color="#2e7d32" />
-                                <Text style={styles.mapHintText}>Tap anywhere on the map to set location</Text>
-                              </View>
-                            </MapView>
+                            />
+                            <View style={styles.mapHint}>
+                              <Ionicons name="hand-left-outline" size={32} color="#2e7d32" />
+                              <Text style={styles.mapHintText}>Tap anywhere on the map to set location</Text>
+                            </View>
                           </View>
                         )}
                       </View>
@@ -854,6 +855,7 @@ const ObservationsSection = ({ API_URL, getAuthToken, plantCache, setPlantCache,
                       // Regular map view when not editing
                       obsDetail.latitude != null && obsDetail.longitude != null ? (
                         <MapView
+                          key={`view-map-${obsDetail?.observation_id ?? 'new'}`}
                           style={styles.map}
                           initialRegion={{
                             latitude: Number(obsDetail.latitude),
