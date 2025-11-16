@@ -150,6 +150,7 @@ const AlertsSection = ({ API_URL, getAuthToken }) => {
         sensorId: a.sensor_id || a.sensorId,
         sensor: a.sensorName || (a.sensor_id ? `Sensor ${a.sensor_id}` : 'Unknown sensor'),
         observation: a.sensorLocation || '',
+        observationId: a.observation_id || a.observationId || null,
         message: a.description || a.message || '',
         score: typeof a.score === 'number' ? a.score : (a.score ? Number(a.score) : 0),
         timestamp: a.created_at || a.createdAt || '',
@@ -461,8 +462,10 @@ const AlertsSection = ({ API_URL, getAuthToken }) => {
                     <View style={styles.alertTitleContainer}>
                       <Text style={styles.alertTitle}>{formatAlertType(alert.type)}</Text>
                       <View style={styles.alertMetaRow}>
-                        <Ionicons name="hardware-chip-outline" size={12} color="#666" />
-                        <Text style={styles.alertMetaText}>Sensor {alert.sensor}</Text>
+                        <Ionicons name="map-outline" size={12} color="#666" />
+                        <Text style={styles.alertMetaText}>
+                          {alert.observationId ? `Observation #${alert.observationId}` : 'Observation: Unknown'}
+                        </Text>
                         {alert.observation && (
                           <>
                             <Text style={styles.alertMetaSeparator}>•</Text>
@@ -585,37 +588,47 @@ const AlertsSection = ({ API_URL, getAuthToken }) => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={[styles.modalBody, styles.detailModalBody]}>
-              {alertDetail ? (
-                <>
-                  <View style={[
-                    styles.alertHeader,
-                    { padding: 16, backgroundColor: getSeverityBgColor(alertDetail.severity), borderRadius: 8 }
-                  ]}>
-                    <View style={styles.alertTitleRow}>
-                      <Ionicons 
-                        name={getAlertTypeIcon(alertDetail.type)} 
-                        size={24} 
-                        color="#2e7d32" 
-                        style={styles.alertTypeIcon}
-                      />
-                      <Text style={styles.alertTitle}>{formatAlertType(alertDetail.type)}</Text>
-                    </View>
+              <ScrollView style={[styles.modalBody, styles.detailModalBody]}>
+                {alertDetail ? (
+                  <>
                     <View style={[
-                      styles.severityBadge,
-                      { backgroundColor: getSeverityColor(alertDetail.severity) }
+                      styles.alertHeader,
+                      { padding: 16, backgroundColor: getSeverityBgColor(alertDetail.severity), borderRadius: 8 }
                     ]}>
-                      <Ionicons 
-                        name={getSeverityIcon(alertDetail.severity)} 
-                        size={14} 
-                        color="white" 
-                        style={styles.severityIcon}
-                      />
-                      <Text style={styles.severityText}>
-                        {alertDetail.severity ? alertDetail.severity.charAt(0).toUpperCase() + alertDetail.severity.slice(1) : 'Unknown'}
-                      </Text>
+                      <View style={styles.alertTitleRow}>
+                        <Ionicons 
+                          name={getAlertTypeIcon(alertDetail.type)} 
+                          size={24} 
+                          color="#2e7d32" 
+                          style={styles.alertTypeIcon}
+                        />
+                        <View style={styles.alertTitleContainer}>
+                          <Text style={styles.alertTitle}>{formatAlertType(alertDetail.type)}</Text>
+                          <View style={styles.alertMetaRow}>
+                            <Ionicons name="map-outline" size={12} color="#666" />
+                            <Text style={styles.alertMetaText}>
+                              {alertDetail?.observationId ? `Observation #${alertDetail.observationId}` : 'Observation: Unknown'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <View style={styles.alertHeaderRight}>
+                        <View style={[
+                          styles.severityBadge,
+                          { backgroundColor: getSeverityColor(alertDetail.severity) }
+                        ]}>
+                          <Ionicons 
+                            name={getSeverityIcon(alertDetail.severity)} 
+                            size={14} 
+                            color="white" 
+                            style={styles.severityIcon}
+                          />
+                          <Text style={styles.severityText}>
+                            {alertDetail.severity ? alertDetail.severity.charAt(0).toUpperCase() + alertDetail.severity.slice(1) : 'Unknown'}
+                          </Text>
+                        </View>
+                      </View>
                     </View>
-                  </View>
 
                   {/* Resolved status */}
                   <View style={styles.detailStatusSection}>
@@ -688,11 +701,13 @@ const AlertsSection = ({ API_URL, getAuthToken }) => {
                       <Text style={styles.detailLabel}>Type:</Text>
                       <Text style={styles.detailValue}>{formatAlertType(alertDetail.type) || '—'}</Text>
                     </View>
-                    <View style={styles.detailItem}>
-                      <Ionicons name="hardware-chip-outline" size={16} color="#666" />
-                      <Text style={styles.detailLabel}>Sensor:</Text>
-                      <Text style={styles.detailValue}>{alertDetail.sensor || '—'}</Text>
-                    </View>
+                    {alertDetail.type !== 'poaching_alert' && (
+                      <View style={styles.detailItem}>
+                        <Ionicons name="hardware-chip-outline" size={16} color="#666" />
+                        <Text style={styles.detailLabel}>Sensor:</Text>
+                        <Text style={styles.detailValue}>{alertDetail.sensor || '—'}</Text>
+                      </View>
+                    )}
                     <View style={styles.detailItem}>
                       <Ionicons name="speedometer-outline" size={16} color="#666" />
                       <Text style={styles.detailLabel}>Score:</Text>
