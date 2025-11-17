@@ -7,10 +7,10 @@ from datetime import datetime
 
 # ====== MySQL Configuration ======
 db_config = {
-    "host": "srv1758.hstgr.io",
-    "user": "u149795069_user",
-    "password": "Smartestplant123",
-    "database": "u149795069_smartplant"
+    'host': 'cos30049-smartplantapp.duckdns.org',
+    'user': 'u149795069_user',
+    'password': 'YourStrongPassword!',
+    'database': 'COS30049_SMARTPLANT',
 }
 
 # ====== MQTT Configuration ======
