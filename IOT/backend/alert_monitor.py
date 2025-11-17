@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 # ========== DATABASE CONFIG ==========
 DB_CONFIG = {
-    'host': 'srv1758.hstgr.io',
+    'host': 'cos30049-smartplantapp.duckdns.org',
     'user': 'u149795069_user',
-    'password': 'Smartestplant123',
-    'database': 'u149795069_smartplant',
+    'password': 'YourStrongPassword!',
+    'database': 'COS30049_SMARTPLANT',
     'autocommit': True,
     'connection_timeout': 10,
     'charset': 'utf8mb4'
