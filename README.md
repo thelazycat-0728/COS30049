@@ -1,20 +1,20 @@
-**🌿 SmartPlant System**
+# Title **🌿 SmartPlant System**
 
 SmartPlant is an AI-powered mobile application designed to help users identify plants, visualize geographical growing patterns, protect plantations using IoT monitoring, and ensure user data privacy through secure backend architecture. The system also includes automated AI retraining to support continuous learning and improvement.
 
-**👥 Contributing Members**
+## Subtitle **👥 Contributing Members**
 
-| **Name** | **Role** |
-| --- | --- |
-| Jonathan Kuok Kai YEO |     |
-| James Teck Hock WONG |     |
-| Miccole Yee Syuen PHIONG |     |
-| Jun Wen NG |     |
-| Aaron Yi Heng LAU |     |
-| Daryl Jia Jie TAN |     |
-| Chow Xian CHUNG |     |
+| **Name** | 
+| --- |
+| Jonathan Kuok Kai YEO |     
+| James Teck Hock WONG |     
+| Miccole Yee Syuen PHIONG |     
+| Jun Wen NG |     
+| Aaron Yi Heng LAU |     
+| Daryl Jia Jie TAN |     
+| Chow Xian CHUNG |     
 
-**🚀 Key Features**
+## Subtitle **🚀 Key Features**
 
 - **AI-Powered Mobile Plant Identification**
 - **Visualization & Mapping Tools**
@@ -22,39 +22,49 @@ SmartPlant is an AI-powered mobile application designed to help users identify p
 - **Cybersecurity & Data Privacy Controls**
 - **Automated AI Model Retraining Module**
 
-**🛠️ Local Development Setup**
+## Subtitle **🛠️ Local Development Setup**
 
-**1\. Clone the Repository**
+## Header **1\. Clone the Repository**
 
+```console
 git clone <https://github.com/thelazycat-0728/COS30049>
 
 cd COS30049
+```
 
-**2\. Install Dependencies**
+## Header **2\. Install Dependencies**
 
 **Frontend**
 
+```console
 cd frontend
 
 npm install
 
-**Backend**
+```
 
+**Backend**
+``` console
 cd ..
 
 cd backend
 
 npm install
 
+```
+
 **AI Backend**
 
+``` console
 cd ..
 
 cd ai-backend
 
 npm install
 
-**3\. Configure Environment Variables**
+```
+
+## Header **3\. Configure Environment Variables**
 
 Locate the following .env files and update the IP address to match **your local machine**:
 
@@ -71,27 +81,35 @@ If **port 8080** is already in use, change it in:
 | backend/.env | PORT |
 | backend/.env | MAIN_BACKEND_URL |
 
-**4\. Run the Project**
+## Header **4\. Run the Project**
 
 Run the following services **simultaneously**:
 
 **Frontend**
 
+``` console
 cd frontend
 
 npm run start
 
+```
+
 **Backend**
 
+```console
 cd backend
 
 npm start
 
-**AI Backend**
+```
 
+**AI Backend**
+``` console
 cd ai-backend
 
 npm start
+
+```
 
 **❗ Troubleshooting**
 
@@ -101,16 +119,15 @@ npm start
 | **Port already in use** | Update ports in .env files as described above |
 | Backend not responding | Ensure all three components are running |
 
-**🔧 IoT Setup**
+## Subtitle **🔧 IoT Setup**
 
 Refer to the **Readme file inside the /IoT folder** for hardware and firmware configuration instructions.
 
-**☁️ Cloud Deployment**
+## Subtitle **☁️ Cloud Deployment**
 
-**Steps:**
+## Header **Steps:**
 
-- Checkout the cloud branch:
-- git checkout aws-branch
+- Clone the cloud branch
 - Request the project owner (**Jonathan**) to activate the cloud server.
 
 AWS Educate learner accounts require manual server activation when starting the lab environment.
@@ -120,11 +137,11 @@ AWS Educate learner accounts require manual server activation when starting the 
 - Contact the AI engineer (**Kelvin**) to deploy the AI backend server.  
     Once deployed, AI features (plant detection, retraining, etc.) will be functional.
 
-**📄 License**
+## Subtitle **📄 License**
 
 This project is for academic and demonstration purposes. License terms may be updated based on deployment requirements.
 
-**📞 Support / Contacts**
+## Subtitle **📞 Support / Contacts**
 
 For assistance during setup:
 
