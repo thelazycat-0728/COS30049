@@ -40,9 +40,8 @@ exports.classifyImage = async (req, res) => {
       headers: {
         ...formData.getHeaders()
       },
-      timeout: 30000 // 30 second timeout for classification
+      timeout: 60000 // 60 second timeout for classification
     });
-
     auditLogger.info('classification.result', { 
       requestId: req.requestId, 
       result: response.data 
